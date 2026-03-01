@@ -7,6 +7,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { env } from './env.js';
+import { uploadBookToCalibre } from './calibre-client.js';
 
 /** Supported ebook file extensions */
 const EBOOK_EXTENSIONS = new Set([
@@ -239,6 +240,13 @@ export async function copyBookToLibrary(contentPath: string): Promise<void> {
 				await fs.copyFile(srcFile, destFile);
 				console.log(`[library] Copied to library: ${path.basename(srcFile)}`);
 				copied++;
+
+				// Register in Calibre-Web if configured
+				if (env.CALIBRE_WEB_URL) {
+					uploadBookToCalibre(destFile).catch((err) =>
+						console.error(`[library] Calibre-Web upload failed for ${path.basename(srcFile)}:`, err)
+					);
+				}
 			}
 		}
 
