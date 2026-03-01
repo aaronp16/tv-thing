@@ -13,25 +13,57 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { env } from './env.js';
 
-/** Session cookie from Calibre-Web login */
-let sessionCookie: string | null = null;
+/** All cookies collected across the login flow, keyed by cookie name */
+let cookieJar: Map<string, string> = new Map();
 
 function getBaseUrl(): string {
 	return env.CALIBRE_WEB_URL.replace(/\/$/, '');
 }
 
+/** Parse all Set-Cookie headers from a response and merge into the jar */
+function collectCookies(response: Response): void {
+	// Node's fetch (undici) exposes repeated headers via getSetCookie() if available,
+	// otherwise we fall back to iterating headers entries.
+	const raw: string[] = [];
+	if (typeof (response.headers as any).getSetCookie === 'function') {
+		raw.push(...(response.headers as any).getSetCookie());
+	} else {
+		for (const [name, value] of response.headers.entries()) {
+			if (name.toLowerCase() === 'set-cookie') raw.push(value);
+		}
+	}
+	for (const cookie of raw) {
+		const [pair] = cookie.split(';');
+		const eq = pair.indexOf('=');
+		if (eq === -1) continue;
+		const name = pair.slice(0, eq).trim();
+		const value = pair.slice(eq + 1).trim();
+		cookieJar.set(name, value);
+	}
+	console.log(`[calibre] Cookie jar now has: ${[...cookieJar.keys()].join(', ')}`);
+}
+
+/** Serialize the cookie jar into a Cookie header value */
+function buildCookieHeader(): string {
+	return [...cookieJar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
 /**
- * Login to Calibre-Web and store the session cookie.
- * Calibre-Web uses Flask-WTF CSRF protection, so we must first GET the login
- * page to extract the csrf_token hidden field, then POST it back.
+ * Login to Calibre-Web and populate the cookie jar.
+ * Calibre-Web uses Flask-WTF CSRF protection on the login form itself,
+ * so we GET the login page first to get the csrf_token + initial session cookie,
+ * then POST credentials. The authenticated session + csrftoken cookies are
+ * then stored for subsequent requests.
  */
 async function login(): Promise<void> {
 	const baseUrl = getBaseUrl();
+	cookieJar = new Map();
 
-	// Step 1: GET the login page to obtain CSRF token and initial session cookie
-	console.log(`[calibre] Fetching login page for CSRF token: ${baseUrl}/login`);
+	// Step 1: GET the login page — captures initial session + csrftoken cookies
+	console.log(`[calibre] Fetching login page: ${baseUrl}/login`);
 	const getResponse = await fetch(`${baseUrl}/login`, { method: 'GET' });
 	console.log(`[calibre] Login page response: ${getResponse.status}`);
+	collectCookies(getResponse);
 
 	const html = await getResponse.text();
 	const csrfMatch = html.match(/name="csrf_token"[^>]*value="([^"]+)"/);
@@ -39,22 +71,15 @@ async function login(): Promise<void> {
 		throw new Error(`Calibre-Web: could not find csrf_token in login page (status ${getResponse.status})`);
 	}
 	const csrfToken = csrfMatch[1];
-	console.log(`[calibre] Got CSRF token: ${csrfToken.slice(0, 10)}...`);
+	console.log(`[calibre] Got login CSRF token: ${csrfToken.slice(0, 10)}...`);
 
-	// Capture the initial session cookie from the GET response (required for CSRF validation)
-	const getCookie = getResponse.headers.get('set-cookie');
-	const initialSession = getCookie?.match(/session=([^;]+)/)?.[1];
-	console.log(`[calibre] Initial session cookie: ${initialSession ? 'present' : '(none)'}`);
-
-	// Step 2: POST login with CSRF token
-	const url = `${baseUrl}/login`;
-	console.log(`[calibre] Logging in to ${url} as "${env.CALIBRE_WEB_USERNAME}"...`);
-
-	const response = await fetch(url, {
+	// Step 2: POST login — captures authenticated session cookie
+	console.log(`[calibre] Logging in as "${env.CALIBRE_WEB_USERNAME}"...`);
+	const postResponse = await fetch(`${baseUrl}/login`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/x-www-form-urlencoded',
-			...(initialSession ? { 'Cookie': `session=${initialSession}` } : {})
+			'Cookie': buildCookieHeader()
 		},
 		body: new URLSearchParams({
 			username: env.CALIBRE_WEB_USERNAME,
@@ -65,22 +90,21 @@ async function login(): Promise<void> {
 		redirect: 'manual'
 	});
 
-	console.log(`[calibre] Login response: ${response.status} ${response.statusText}`);
+	console.log(`[calibre] Login POST response: ${postResponse.status} ${postResponse.statusText}`);
+	collectCookies(postResponse);
 
-	const setCookie = response.headers.get('set-cookie');
-	console.log(`[calibre] Set-Cookie header: ${setCookie ?? '(none)'}`);
-
-	if (!setCookie) {
-		throw new Error(`Calibre-Web login failed: no Set-Cookie header (status ${response.status})`);
+	if (postResponse.status !== 302) {
+		throw new Error(`Calibre-Web login failed: expected 302 redirect, got ${postResponse.status}`);
+	}
+	if (!cookieJar.has('session')) {
+		throw new Error(`Calibre-Web login failed: no session cookie after login`);
 	}
 
-	const match = setCookie.match(/session=([^;]+)/);
-	if (!match) {
-		throw new Error(`Calibre-Web login failed: no session= in Set-Cookie: ${setCookie}`);
-	}
-
-	sessionCookie = match[1];
 	console.log('[calibre] Logged in successfully');
+}
+
+function isLoggedIn(): boolean {
+	return cookieJar.has('session');
 }
 
 /**
@@ -100,11 +124,10 @@ export async function uploadBookToCalibre(filePath: string): Promise<string> {
 
 	console.log(`[calibre] Starting upload: ${filePath}`);
 
-	// Login if we don't have a session
-	if (!sessionCookie) {
+	if (!isLoggedIn()) {
 		await login();
 	} else {
-		console.log('[calibre] Reusing existing session cookie');
+		console.log('[calibre] Reusing existing session');
 	}
 
 	let fileBuffer: Buffer;
@@ -125,7 +148,6 @@ export async function uploadBookToCalibre(filePath: string): Promise<string> {
 
 	const parts: Buffer[] = [];
 
-	// File field
 	parts.push(Buffer.from(
 		`--${boundary}${CRLF}` +
 		`Content-Disposition: form-data; name="btn-upload"; filename="${filename}"${CRLF}` +
@@ -142,20 +164,18 @@ export async function uploadBookToCalibre(filePath: string): Promise<string> {
 		method: 'POST',
 		headers: {
 			'Content-Type': `multipart/form-data; boundary=${boundary}`,
-			'Cookie': `session=${sessionCookie}`,
+			'Cookie': buildCookieHeader(),
 			'X-Requested-With': 'XMLHttpRequest'
 		},
 		body
 	});
 
 	console.log(`[calibre] Upload response: ${response.status} ${response.statusText}`);
-	console.log(`[calibre] Response URL: ${response.url}`);
-	console.log(`[calibre] Redirected: ${response.redirected}`);
 
-	// Session expired — re-login and retry once
-	if (response.status === 401 || (response.redirected && response.url.includes('/login'))) {
-		console.log('[calibre] Session expired, re-logging in...');
-		sessionCookie = null;
+	// Session expired — clear jar, re-login, retry once
+	if (response.status === 401 || response.status === 403) {
+		console.log('[calibre] Auth error, re-logging in...');
+		cookieJar = new Map();
 		await login();
 		return uploadBookToCalibre(filePath);
 	}
@@ -182,4 +202,3 @@ export async function uploadBookToCalibre(filePath: string): Promise<string> {
 	console.log(`[calibre] Uploaded successfully: ${filename} → ${location}`);
 	return location;
 }
-
