@@ -7,7 +7,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { env } from './env.js';
-import { uploadBookToCalibre } from './calibre-client.js';
+import { addBookToCalibre } from './calibre-client.js';
 
 /** Supported ebook file extensions */
 const EBOOK_EXTENSIONS = new Set([
@@ -255,15 +255,11 @@ export async function copyBookToLibrary(contentPath: string): Promise<void> {
 				console.log(`[library] Copied to library: ${path.basename(srcFile)} → ${destFile}`);
 				copied++;
 
-				// Register in Calibre-Web if configured
-				if (env.CALIBRE_WEB_URL) {
-					console.log(`[library] Triggering Calibre-Web upload for: ${destFile}`);
-					uploadBookToCalibre(destFile).catch((err) =>
-						console.error(`[library] Calibre-Web upload failed for ${path.basename(srcFile)}:`, err)
-					);
-				} else {
-					console.log('[library] CALIBRE_WEB_URL not set — skipping Calibre upload');
-				}
+				// Register in Calibre library (moves file into Author/Title structure)
+				console.log(`[library] Registering in Calibre library: ${destFile}`);
+				addBookToCalibre(destFile).catch((err: unknown) =>
+					console.error(`[library] Calibre registration failed for ${path.basename(srcFile)}:`, err)
+				);
 			}
 		}
 
