@@ -28,6 +28,14 @@ async function getDb() {
 	const dbPath = path.join(env.BOOKS_DIR, 'metadata.db');
 	const { DatabaseSync } = await import('node:sqlite');
 	_db = new DatabaseSync(dbPath);
+
+	// Calibre registers title_sort() and uuid4() as custom SQLite functions at
+	// runtime. The books_insert_trg and series_insert_trg triggers call them,
+	// so we must register equivalent functions on our connection or every INSERT
+	// into books/series will fail with "no such function".
+	_db.function('title_sort', (title: string) => titleSort(title ?? ''));
+	_db.function('uuid4', () => randomUUID());
+
 	return _db;
 }
 
