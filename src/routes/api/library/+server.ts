@@ -36,11 +36,11 @@ export const GET: RequestHandler = async () => {
 
 		const books = db.prepare(`
 			SELECT b.id, b.title, b.has_cover, b.path, b.timestamp,
-			       GROUP_CONCAT(a.name, ', ') AS authors
+			       (SELECT GROUP_CONCAT(a.name, ', ')
+			        FROM books_authors_link bal
+			        JOIN authors a ON a.id = bal.author
+			        WHERE bal.book = b.id) AS authors
 			FROM   books b
-			LEFT JOIN books_authors_link bal ON bal.book = b.id
-			LEFT JOIN authors a              ON a.id = bal.author
-			GROUP BY b.id
 			ORDER BY b.timestamp DESC
 		`).all() as Array<{
 			id: number;
@@ -51,8 +51,17 @@ export const GET: RequestHandler = async () => {
 			authors: string | null;
 		}>;
 
+		// Deduplicate by title, keeping the highest ID (most recently added copy)
+		const seen = new Set<string>();
+		const deduped = books.filter(b => {
+			const key = b.title.toLowerCase();
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		});
+
 		return json({
-			books: books.map(b => ({
+			books: deduped.map(b => ({
 				id: b.id,
 				title: b.title,
 				author: b.authors ?? 'Unknown',
@@ -60,7 +69,7 @@ export const GET: RequestHandler = async () => {
 				path: b.path,
 				addedAt: b.timestamp
 			})),
-			totalBooks: books.length
+			totalBooks: deduped.length
 		});
 	} catch (err) {
 		console.error('[api/library] Error:', err);
