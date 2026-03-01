@@ -1,0 +1,18 @@
+services:
+  book-thing:
+    build: .
+    container_name: book-thing
+    restart: unless-stopped
+    ports:
+      - '13338:3000'
+    environment:
+      - MAM_ID=${MAM_ID}
+      - MAM_UID=${MAM_UID}
+      - BOOKS_DIR=/books
+      - QB_URL=${QB_URL}
+      - QB_USERNAME=${QB_USERNAME}
+      - QB_PASSWORD=${QB_PASSWORD}
+      - QB_CATEGORY=${QB_CATEGORY:-books}
+    volumes:
+      - /home/aaron/data/media/books:/books
+      - /home/aaron/homelab/data/torrents/books:/torrents:ro
