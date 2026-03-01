@@ -107,31 +107,6 @@ export async function uploadBookToCalibre(filePath: string): Promise<string> {
 		console.log('[calibre] Reusing existing session cookie');
 	}
 
-	// Fetch the upload page to get a fresh CSRF token for the upload form
-	console.log(`[calibre] Fetching upload page for CSRF token...`);
-	const uploadPageResponse = await fetch(`${getBaseUrl()}/upload`, {
-		method: 'GET',
-		headers: { 'Cookie': `session=${sessionCookie}` },
-		redirect: 'manual'
-	});
-
-	// If redirected to login, session expired — re-login and retry
-	if (uploadPageResponse.status === 302 || (uploadPageResponse.redirected && uploadPageResponse.url.includes('/login'))) {
-		console.log('[calibre] Session expired fetching upload page, re-logging in...');
-		sessionCookie = null;
-		await login();
-		return uploadBookToCalibre(filePath);
-	}
-
-	console.log(`[calibre] Upload page response: ${uploadPageResponse.status}`);
-	const uploadPageHtml = await uploadPageResponse.text();
-	const uploadCsrfMatch = uploadPageHtml.match(/name="csrf_token"[^>]*value="([^"]+)"/);
-	if (!uploadCsrfMatch) {
-		throw new Error(`Calibre-Web: could not find csrf_token in upload page (status ${uploadPageResponse.status})`);
-	}
-	const uploadCsrfToken = uploadCsrfMatch[1];
-	console.log(`[calibre] Got upload CSRF token: ${uploadCsrfToken.slice(0, 10)}...`);
-
 	let fileBuffer: Buffer;
 	try {
 		fileBuffer = await fs.readFile(filePath);
@@ -149,14 +124,6 @@ export async function uploadBookToCalibre(filePath: string): Promise<string> {
 	const CRLF = '\r\n';
 
 	const parts: Buffer[] = [];
-
-	// CSRF token field must come first
-	parts.push(Buffer.from(
-		`--${boundary}${CRLF}` +
-		`Content-Disposition: form-data; name="csrf_token"${CRLF}` +
-		CRLF +
-		uploadCsrfToken + CRLF
-	));
 
 	// File field
 	parts.push(Buffer.from(
