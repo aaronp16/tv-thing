@@ -1,0 +1,298 @@
+<script lang="ts">
+	interface Props {
+		forcedTab?: 'library';
+		hideTabBar?: boolean;
+		showLargeTitle?: boolean;
+		titleRight?: import('svelte').Snippet;
+	}
+
+	let {
+		forcedTab,
+		hideTabBar = false,
+		showLargeTitle = false,
+		titleRight
+	}: Props = $props();
+
+	interface LibraryBook {
+		id: number;
+		title: string;
+		author: string;
+		hasCover: boolean;
+		path: string;
+		addedAt: string;
+	}
+
+	let books = $state<LibraryBook[]>([]);
+	let loading = $state(false);
+	let error = $state<string | null>(null);
+	let searchQuery = $state('');
+
+	const filteredBooks = $derived.by(() => {
+		if (!searchQuery.trim()) return books;
+
+		const query = searchQuery.toLowerCase();
+		return books.filter(
+			(b) =>
+				b.title.toLowerCase().includes(query) ||
+				b.author.toLowerCase().includes(query)
+		);
+	});
+
+	async function fetchLibrary() {
+		loading = true;
+		error = null;
+
+		try {
+			const response = await fetch('/api/library');
+			if (!response.ok) {
+				throw new Error('Failed to load library');
+			}
+			const data = await response.json();
+			books = data.books || [];
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load library';
+		} finally {
+			loading = false;
+		}
+	}
+
+	export function refresh() {
+		fetchLibrary();
+	}
+
+	// Initial load
+	$effect(() => {
+		fetchLibrary();
+	});
+
+	function clearSearch() {
+		searchQuery = '';
+	}
+</script>
+
+<div class="flex h-full flex-col">
+	<div class="flex flex-1 flex-col overflow-hidden">
+		<!-- Header -->
+		<div class="animate-fade-in px-4 py-6 sm:px-6 sm:py-8">
+			{#if showLargeTitle}
+				<div class="mb-4 flex items-center justify-between gap-4 sm:mb-6">
+					<h1 class="text-2xl font-bold text-white sm:text-3xl md:text-4xl">Library</h1>
+					{#if titleRight}
+						{@render titleRight()}
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Search bar -->
+			{#if books.length > 0}
+				<div class="relative">
+					<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
+						{#if loading}
+							<svg class="h-5 w-5 animate-spin text-neutral-400" viewBox="0 0 24 24" fill="none">
+								<circle
+									class="opacity-25"
+									cx="12"
+									cy="12"
+									r="10"
+									stroke="currentColor"
+									stroke-width="4"
+								></circle>
+								<path
+									class="opacity-75"
+									fill="currentColor"
+									d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+								></path>
+							</svg>
+						{:else}
+							<svg
+								class="h-5 w-5 text-neutral-400"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+								/>
+							</svg>
+						{/if}
+					</div>
+					<input
+						type="text"
+						bind:value={searchQuery}
+						placeholder="Filter library..."
+						class="w-full rounded-full border-0 bg-neutral-800 py-3 pr-12 pl-12 text-white placeholder-neutral-500 ring-1 ring-neutral-700 transition-all focus:bg-neutral-750 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+					/>
+					{#if searchQuery}
+						<button
+							onclick={clearSearch}
+							class="absolute top-1/2 right-4 -translate-y-1/2 rounded-full p-0.5 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-300"
+							aria-label="Clear search"
+						>
+							<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M6 18L18 6M6 6l12 12"
+								/>
+							</svg>
+						</button>
+					{:else}
+						<button
+							onclick={fetchLibrary}
+							disabled={loading}
+							class="absolute top-1/2 right-4 -translate-y-1/2 rounded-full p-0.5 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-300 disabled:opacity-50"
+							title="Refresh library"
+						>
+							<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+								/>
+							</svg>
+						</button>
+					{/if}
+				</div>
+			{/if}
+		</div>
+
+		<!-- Results area -->
+		<div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-8">
+			<!-- Stats -->
+			{#if books.length > 0}
+				<div class="mb-3 flex items-center justify-between text-xs text-neutral-500">
+					<span>
+						{#if searchQuery.trim()}
+							Found {filteredBooks.length} book{filteredBooks.length !== 1 ? 's' : ''}
+						{:else}
+							{books.length} book{books.length !== 1 ? 's' : ''}
+						{/if}
+					</span>
+				</div>
+			{/if}
+
+			<!-- Library Content -->
+			{#if error}
+				<div class="flex flex-col items-center justify-center py-12 text-center">
+					<div class="mb-3 rounded-full bg-red-900/30 p-3">
+						<svg
+							class="h-6 w-6 text-red-400"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+							/>
+						</svg>
+					</div>
+					<p class="text-sm text-red-400">{error}</p>
+					<button onclick={fetchLibrary} class="mt-2 text-xs text-neutral-400 hover:text-white"
+						>Try again</button
+					>
+				</div>
+			{:else if loading && books.length === 0}
+				<div class="flex flex-col items-center justify-center py-12">
+					<svg class="h-8 w-8 animate-spin text-neutral-600" viewBox="0 0 24 24" fill="none">
+						<circle
+							class="opacity-25"
+							cx="12"
+							cy="12"
+							r="10"
+							stroke="currentColor"
+							stroke-width="4"
+						></circle>
+						<path
+							class="opacity-75"
+							fill="currentColor"
+							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+						></path>
+					</svg>
+					<p class="mt-3 text-sm text-neutral-500">Loading library...</p>
+				</div>
+			{:else if books.length === 0}
+				<div class="flex flex-col items-center justify-center py-12 text-center">
+					<svg
+						class="mb-3 h-12 w-12 text-neutral-700"
+						fill="none"
+						stroke="currentColor"
+						viewBox="0 0 24 24"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="1.5"
+							d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+						/>
+					</svg>
+					<p class="text-sm text-neutral-400">Your library is empty</p>
+					<p class="mt-1 text-xs text-neutral-500">Downloaded books will appear here</p>
+				</div>
+			{:else if filteredBooks.length === 0}
+				<div class="flex flex-col items-center justify-center py-12 text-center">
+					<svg
+						class="mb-3 h-10 w-10 text-neutral-700"
+						fill="none"
+						stroke="currentColor"
+						viewBox="0 0 24 24"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="1.5"
+							d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+						/>
+					</svg>
+					<p class="text-sm text-neutral-400">No matches found</p>
+					<p class="mt-1 text-xs text-neutral-500">Try a different search term</p>
+				</div>
+			{:else}
+				<!-- Book cover grid - thumbnails only -->
+				<div class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4">
+					{#each filteredBooks as book (book.id)}
+						<div class="group relative aspect-[2/3] overflow-hidden rounded-lg bg-neutral-800">
+							{#if book.hasCover}
+								<img
+									src="/api/library/cover/{book.id}"
+									alt={book.title}
+									class="h-full w-full object-cover transition-opacity group-hover:opacity-80"
+									loading="lazy"
+								/>
+							{:else}
+								<div class="flex h-full w-full flex-col items-center justify-center p-2 text-center">
+									<svg
+										class="mb-1 h-6 w-6 text-neutral-600"
+										fill="none"
+										stroke="currentColor"
+										viewBox="0 0 24 24"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											stroke-width="1.5"
+											d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+										/>
+									</svg>
+									<span class="text-[10px] leading-tight text-neutral-500">{book.title}</span>
+								</div>
+							{/if}
+							<!-- Hover overlay with title -->
+							<div class="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+								<p class="truncate text-xs font-medium text-white">{book.title}</p>
+								<p class="truncate text-[10px] text-neutral-400">{book.author}</p>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	</div>
+</div>
