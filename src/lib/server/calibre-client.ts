@@ -16,6 +16,8 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as https from 'https';
+import * as http from 'http';
 import { randomUUID } from 'crypto';
 import { unzipSync, strFromU8 } from 'fflate';
 import { env } from './env.js';
@@ -54,8 +56,9 @@ function sanitize(str: string): string {
 /**
  * Read title and author from an EPUB's OPF metadata.
  * Falls back to filename parsing if the EPUB can't be read or is missing metadata.
+ * Also extracts the cover image if present.
  */
-async function readEpubMeta(filePath: string): Promise<{ title: string; author: string }> {
+async function readEpubMeta(filePath: string): Promise<{ title: string; author: string; coverBytes?: Uint8Array }> {
 	const filename = path.basename(filePath);
 	try {
 		const buf = await fs.readFile(filePath);
@@ -80,13 +83,19 @@ async function readEpubMeta(filePath: string): Promise<{ title: string; author: 
 		const title = titleMatch?.[1]?.trim() || null;
 		const author = authorMatch?.[1]?.trim() || null;
 
+		// Step 3: attempt to extract cover image from the zip
+		const coverBytes = extractEpubCover(zip, opf, opfPath) ?? undefined;
+		if (coverBytes) {
+			console.log(`[calibre-db] Extracted cover from EPUB (${coverBytes.byteLength} bytes)`);
+		}
+
 		if (title && author) {
 			console.log(`[calibre-db] EPUB metadata: title="${title}" author="${author}"`);
-			return { title, author };
+			return { title, author, coverBytes };
 		}
 		if (title) {
 			console.log(`[calibre-db] EPUB metadata: title="${title}", no author — falling back`);
-			return { title, author: parseFilenameAuthor(filename) };
+			return { title, author: parseFilenameAuthor(filename), coverBytes };
 		}
 		throw new Error('Missing dc:title in OPF');
 	} catch (err) {
@@ -113,6 +122,186 @@ function parseFilename(filename: string): { title: string; author: string } {
 /** Extract just the author from a filename, used when OPF has a title but no author. */
 function parseFilenameAuthor(filename: string): string {
 	return parseFilename(filename).author;
+}
+
+// ---------------------------------------------------------------------------
+// Cover image helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch a URL and return the response body as a Buffer.
+ * Follows a single redirect (http → https or same-host).
+ */
+function fetchUrl(url: string, timeoutMs = 10000): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		const client = url.startsWith('https') ? https : http;
+		const req = client.get(url, { timeout: timeoutMs }, (res) => {
+			// Follow one redirect
+			if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+				fetchUrl(res.headers.location, timeoutMs).then(resolve).catch(reject);
+				res.resume();
+				return;
+			}
+			if (res.statusCode !== 200) {
+				reject(new Error(`HTTP ${res.statusCode}`));
+				res.resume();
+				return;
+			}
+			const chunks: Buffer[] = [];
+			res.on('data', (c: Buffer) => chunks.push(c));
+			res.on('end', () => resolve(Buffer.concat(chunks)));
+			res.on('error', reject);
+		});
+		req.on('error', reject);
+		req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+	});
+}
+
+/**
+ * Try to extract a cover image from an EPUB's OPF manifest.
+ *
+ * Looks for the cover item using (in order):
+ *   1. <meta name="cover" content="id"> → find <item id="...">
+ *   2. <item properties="cover-image">
+ *   3. <item id="cover">
+ *
+ * @param zip  Already-unzipped fflate zip object
+ * @param opf  OPF file contents as string
+ * @param opfPath  Path of the OPF file inside the zip (needed to resolve relative hrefs)
+ * @returns Raw image bytes, or null if no cover found
+ */
+function extractEpubCover(
+	zip: Record<string, Uint8Array>,
+	opf: string,
+	opfPath: string
+): Uint8Array | null {
+	// Directory prefix for relative hrefs inside the OPF
+	const opfDir = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
+
+	// Collect all manifest items: id → href
+	const itemById = new Map<string, string>();
+	for (const m of opf.matchAll(/<item\b([^>]+)\/>/gi)) {
+		const attrs = m[1];
+		const idMatch = attrs.match(/\bid=["']([^"']+)["']/i);
+		const hrefMatch = attrs.match(/\bhref=["']([^"']+)["']/i);
+		const mediaType = attrs.match(/\bmedia-type=["']([^"']+)["']/i);
+		if (idMatch && hrefMatch && mediaType?.[1]?.startsWith('image/')) {
+			itemById.set(idMatch[1], hrefMatch[1]);
+		}
+	}
+
+	// Method 1: <meta name="cover" content="id">
+	const metaCover = opf.match(/<meta\b[^>]+\bname=["']cover["'][^>]+\bcontent=["']([^"']+)["']/i)
+		?? opf.match(/<meta\b[^>]+\bcontent=["']([^"']+)["'][^>]+\bname=["']cover["']/i);
+	if (metaCover) {
+		const href = itemById.get(metaCover[1]);
+		if (href) {
+			const data = zip[opfDir + href] ?? zip[href];
+			if (data) return data;
+		}
+	}
+
+	// Method 2: <item properties="cover-image">
+	const propsCover = opf.match(/<item\b[^>]+\bproperties=["'][^"']*cover-image[^"']*["'][^>]+\/>/i);
+	if (propsCover) {
+		const hrefMatch = propsCover[0].match(/\bhref=["']([^"']+)["']/i);
+		if (hrefMatch) {
+			const data = zip[opfDir + hrefMatch[1]] ?? zip[hrefMatch[1]];
+			if (data) return data;
+		}
+	}
+
+	// Method 3: item with id exactly "cover"
+	const coverHref = itemById.get('cover');
+	if (coverHref) {
+		const data = zip[opfDir + coverHref] ?? zip[coverHref];
+		if (data) return data;
+	}
+
+	return null;
+}
+
+/**
+ * Try to fetch a cover image from Open Library (by title+author search).
+ * Returns image bytes, or null if not found.
+ */
+async function fetchOpenLibraryCover(title: string, author: string): Promise<Buffer | null> {
+	try {
+		const q = `title=${encodeURIComponent(title)}&author=${encodeURIComponent(author)}&limit=5&fields=key,cover_i`;
+		const searchBuf = await fetchUrl(`https://openlibrary.org/search.json?${q}`);
+		const results = JSON.parse(searchBuf.toString('utf8'));
+		for (const doc of results?.docs ?? []) {
+			const coverId = doc.cover_i;
+			if (!coverId) continue;
+			const imgBuf = await fetchUrl(`https://covers.openlibrary.org/b/id/${coverId}-L.jpg`);
+			// Open Library returns a 1×1 GIF placeholder when no cover exists
+			if (imgBuf.length > 5000) {
+				console.log(`[calibre-db] Cover from Open Library (cover_i=${coverId}), ${imgBuf.length} bytes`);
+				return imgBuf;
+			}
+		}
+	} catch (err) {
+		console.warn(`[calibre-db] Open Library cover fetch failed: ${err}`);
+	}
+	return null;
+}
+
+/**
+ * Try to fetch a cover image from the Google Books API (by title+author search).
+ * Returns image bytes, or null if not found.
+ */
+async function fetchGoogleBooksCover(title: string, author: string): Promise<Buffer | null> {
+	try {
+		const q = encodeURIComponent(`intitle:${title} inauthor:${author}`);
+		const searchBuf = await fetchUrl(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=5`);
+		const results = JSON.parse(searchBuf.toString('utf8'));
+		for (const item of results?.items ?? []) {
+			const links = item?.volumeInfo?.imageLinks ?? {};
+			let imgUrl: string = links.thumbnail ?? links.smallThumbnail ?? '';
+			if (!imgUrl) continue;
+			// Use zoom=0 for the largest available image; force HTTPS
+			imgUrl = imgUrl.replace(/zoom=\d/, 'zoom=0').replace(/^http:\/\//, 'https://');
+			const imgBuf = await fetchUrl(imgUrl);
+			if (imgBuf.length > 2000) {
+				console.log(`[calibre-db] Cover from Google Books (${item.id}), ${imgBuf.length} bytes`);
+				return imgBuf;
+			}
+		}
+	} catch (err) {
+		console.warn(`[calibre-db] Google Books cover fetch failed: ${err}`);
+	}
+	return null;
+}
+
+/**
+ * Fetch a cover for the given title/author, trying remote sources in order:
+ *   1. Open Library
+ *   2. Google Books
+ *
+ * Returns image bytes, or null if every source fails.
+ */
+async function fetchRemoteCover(title: string, author: string): Promise<Buffer | null> {
+	return (await fetchOpenLibraryCover(title, author))
+		?? (await fetchGoogleBooksCover(title, author));
+}
+
+/**
+ * Write cover image bytes to `cover.jpg` in the given directory.
+ * Calibre-Web and the Kobo sync both expect this filename regardless of the
+ * actual image format (PNG images stored as cover.jpg work fine in practice).
+ *
+ * @returns true on success, false on failure (never throws)
+ */
+async function saveCover(imageBytes: Uint8Array | Buffer, destDir: string): Promise<boolean> {
+	try {
+		const coverPath = path.join(destDir, 'cover.jpg');
+		await fs.writeFile(coverPath, imageBytes);
+		console.log(`[calibre-db] Saved cover.jpg (${imageBytes.byteLength} bytes) → ${coverPath}`);
+		return true;
+	} catch (err) {
+		console.error(`[calibre-db] Failed to save cover: ${err}`);
+		return false;
+	}
 }
 
 /**
@@ -313,6 +502,7 @@ function titleSort(title: string): string {
  *  2. Insert into metadata.db (books, authors, books_authors_link, data)
  *  3. Create the Author/Title (id)/ directory structure
  *  4. Move the flat file into it with the canonical Calibre filename
+ *  5. Fetch and save a cover image (from EPUB contents, then remote APIs)
  *
  * @param flatFilePath - Absolute path to the already-copied flat file in BOOKS_DIR
  * @returns The new book_id, or null on failure (never throws)
@@ -321,13 +511,17 @@ export async function addBookToCalibre(flatFilePath: string): Promise<number | n
 	try {
 		const filename = path.basename(flatFilePath);
 		const ext = path.extname(filename).toLowerCase().slice(1); // "epub"
-		const { title, author } = ext === 'epub'
+		const meta = ext === 'epub'
 			? await readEpubMeta(flatFilePath)
 			: ext === 'mobi' || ext === 'azw3' || ext === 'azw'
 				? await readMobiMeta(flatFilePath)
 				: ext === 'pdf'
 					? await readPdfMeta(flatFilePath)
 					: parseFilename(filename);
+
+		const { title, author } = meta;
+		// coverBytes is only present for EPUBs that had an embedded cover
+		const embeddedCover = ('coverBytes' in meta ? meta.coverBytes : undefined) as Uint8Array | undefined;
 
 		console.log(`[calibre-db] Adding "${title}" by "${author}" (${ext})`);
 
@@ -383,6 +577,32 @@ export async function addBookToCalibre(flatFilePath: string): Promise<number | n
 			stat.size,
 			canonicalName
 		);
+
+		// --- Cover image pipeline ---
+		// Try embedded cover first (already extracted from EPUB), then remote APIs.
+		// This runs after the file move so it never blocks DB registration.
+		(async () => {
+			try {
+				let coverBytes: Uint8Array | Buffer | null = embeddedCover !== undefined ? embeddedCover : null;
+
+				if (!coverBytes) {
+					console.log(`[calibre-db] No embedded cover — fetching from remote for "${title}"`);
+					coverBytes = await fetchRemoteCover(title, author);
+				}
+
+				if (coverBytes) {
+					const saved = await saveCover(coverBytes, absDir);
+					if (saved) {
+						db.prepare('UPDATE books SET has_cover = 1 WHERE id = ?').run(bookId);
+						console.log(`[calibre-db] has_cover=1 set for book id=${bookId}`);
+					}
+				} else {
+					console.warn(`[calibre-db] No cover found for "${title}" by "${author}"`);
+				}
+			} catch (err) {
+				console.error(`[calibre-db] Cover pipeline error for book id=${bookId}:`, err);
+			}
+		})();
 
 		console.log(`[calibre-db] Done — book id=${bookId} registered in Calibre library`);
 		return bookId;
