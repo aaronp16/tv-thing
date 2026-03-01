@@ -192,22 +192,33 @@ function pickBestPerBook(files: string[]): string[] {
 export async function copyBookToLibrary(contentPath: string): Promise<void> {
 	const booksDir = env.BOOKS_DIR;
 
+	console.log(`[library] copyBookToLibrary called with: ${contentPath}`);
+
 	if (!booksDir) {
 		console.warn('[library] BOOKS_DIR not set, skipping copy');
 		return;
 	}
 
 	const localPath = translateQBPath(contentPath);
+	console.log(`[library] Translated path: ${contentPath} → ${localPath}`);
 
 	try {
 		await fs.mkdir(booksDir, { recursive: true });
 
-		const stat = await fs.stat(localPath);
+		let stat;
+		try {
+			stat = await fs.stat(localPath);
+		} catch (err) {
+			console.error(`[library] Cannot stat translated path "${localPath}" — does the /torrents volume mount exist and is the path correct? Error: ${err}`);
+			return;
+		}
+
 		let srcFiles: string[];
 
 		if (stat.isFile()) {
 			// Single-file torrent
 			const ext = path.extname(localPath).toLowerCase();
+			console.log(`[library] Single file detected, extension: ${ext}`);
 			if (!KOBO_FORMAT_PRIORITY.includes(ext)) {
 				console.warn(`[library] Skipping non-ebook file: ${localPath}`);
 				return;
@@ -215,13 +226,16 @@ export async function copyBookToLibrary(contentPath: string): Promise<void> {
 			srcFiles = [localPath];
 		} else if (stat.isDirectory()) {
 			// Walk the entire directory tree and collect all ebook files
+			console.log(`[library] Directory detected, scanning recursively: ${localPath}`);
 			const allEbooks = await collectEbooks(localPath);
+			console.log(`[library] Found ${allEbooks.length} ebook file(s):`, allEbooks);
 			if (allEbooks.length === 0) {
 				console.warn(`[library] No recognised ebook files found in: ${localPath}`);
 				return;
 			}
 			// Pick the best format per unique book title
 			srcFiles = pickBestPerBook(allEbooks);
+			console.log(`[library] Selected ${srcFiles.length} file(s) after format dedup:`, srcFiles.map(f => path.basename(f)));
 		} else {
 			console.warn(`[library] Unexpected file type at: ${localPath}`);
 			return;
@@ -238,14 +252,17 @@ export async function copyBookToLibrary(contentPath: string): Promise<void> {
 			} catch {
 				// File doesn't exist — copy it
 				await fs.copyFile(srcFile, destFile);
-				console.log(`[library] Copied to library: ${path.basename(srcFile)}`);
+				console.log(`[library] Copied to library: ${path.basename(srcFile)} → ${destFile}`);
 				copied++;
 
 				// Register in Calibre-Web if configured
 				if (env.CALIBRE_WEB_URL) {
+					console.log(`[library] Triggering Calibre-Web upload for: ${destFile}`);
 					uploadBookToCalibre(destFile).catch((err) =>
 						console.error(`[library] Calibre-Web upload failed for ${path.basename(srcFile)}:`, err)
 					);
+				} else {
+					console.log('[library] CALIBRE_WEB_URL not set — skipping Calibre upload');
 				}
 			}
 		}

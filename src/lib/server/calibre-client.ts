@@ -25,6 +25,7 @@ function getBaseUrl(): string {
  */
 async function login(): Promise<void> {
 	const url = `${getBaseUrl()}/login`;
+	console.log(`[calibre] Logging in to ${url} as "${env.CALIBRE_WEB_USERNAME}"...`);
 
 	const response = await fetch(url, {
 		method: 'POST',
@@ -39,15 +40,19 @@ async function login(): Promise<void> {
 		redirect: 'manual' // Don't follow redirect — we just want the Set-Cookie header
 	});
 
+	console.log(`[calibre] Login response: ${response.status} ${response.statusText}`);
+
 	// Calibre-Web redirects on successful login (302), returns 200 on failure
 	const setCookie = response.headers.get('set-cookie');
+	console.log(`[calibre] Set-Cookie header: ${setCookie ?? '(none)'}`);
+
 	if (!setCookie) {
-		throw new Error('Calibre-Web login failed: no session cookie in response');
+		throw new Error(`Calibre-Web login failed: no Set-Cookie header (status ${response.status})`);
 	}
 
 	const match = setCookie.match(/session=([^;]+)/);
 	if (!match) {
-		throw new Error('Calibre-Web login failed: could not parse session cookie');
+		throw new Error(`Calibre-Web login failed: no session= in Set-Cookie: ${setCookie}`);
 	}
 
 	sessionCookie = match[1];
@@ -65,17 +70,30 @@ async function login(): Promise<void> {
  */
 export async function uploadBookToCalibre(filePath: string): Promise<string> {
 	if (!env.CALIBRE_WEB_URL) {
+		console.warn('[calibre] CALIBRE_WEB_URL not set — skipping upload');
 		throw new Error('CALIBRE_WEB_URL is not configured');
 	}
+
+	console.log(`[calibre] Starting upload: ${filePath}`);
 
 	// Login if we don't have a session
 	if (!sessionCookie) {
 		await login();
+	} else {
+		console.log('[calibre] Reusing existing session cookie');
 	}
 
-	const fileBuffer = await fs.readFile(filePath);
+	let fileBuffer: Buffer;
+	try {
+		fileBuffer = await fs.readFile(filePath);
+		console.log(`[calibre] Read file: ${filePath} (${fileBuffer.length} bytes)`);
+	} catch (err) {
+		throw new Error(`[calibre] Could not read file at ${filePath}: ${err}`);
+	}
+
 	const filename = path.basename(filePath);
 	const ext = path.extname(filename).toLowerCase().slice(1); // e.g. "epub"
+	console.log(`[calibre] Uploading "${filename}" (format: ${ext}) to ${getBaseUrl()}/upload`);
 
 	// Build multipart body manually — same approach as qbittorrent-client.ts
 	// to avoid Node.js FormData/undici issues with binary data
@@ -106,20 +124,31 @@ export async function uploadBookToCalibre(filePath: string): Promise<string> {
 		body
 	});
 
+	console.log(`[calibre] Upload response: ${response.status} ${response.statusText}`);
+	console.log(`[calibre] Response URL: ${response.url}`);
+	console.log(`[calibre] Redirected: ${response.redirected}`);
+
 	// Session expired — re-login and retry once
-	if (response.status === 401 || response.redirected && response.url.includes('/login')) {
+	if (response.status === 401 || (response.redirected && response.url.includes('/login'))) {
 		console.log('[calibre] Session expired, re-logging in...');
 		sessionCookie = null;
 		await login();
 		return uploadBookToCalibre(filePath);
 	}
 
+	const responseText = await response.text();
+	console.log(`[calibre] Response body: ${responseText.slice(0, 500)}`);
+
 	if (!response.ok) {
-		const text = await response.text();
-		throw new Error(`Calibre-Web upload failed: ${response.status} ${text.slice(0, 200)}`);
+		throw new Error(`Calibre-Web upload failed: ${response.status} ${responseText.slice(0, 200)}`);
 	}
 
-	const result = await response.json() as { location?: string; error?: string };
+	let result: { location?: string; error?: string };
+	try {
+		result = JSON.parse(responseText);
+	} catch {
+		throw new Error(`Calibre-Web upload returned non-JSON: ${responseText.slice(0, 200)}`);
+	}
 
 	if (result.error) {
 		throw new Error(`Calibre-Web upload error: ${result.error}`);
@@ -129,3 +158,4 @@ export async function uploadBookToCalibre(filePath: string): Promise<string> {
 	console.log(`[calibre] Uploaded successfully: ${filename} → ${location}`);
 	return location;
 }
+
