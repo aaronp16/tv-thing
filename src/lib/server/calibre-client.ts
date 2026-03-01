@@ -17,6 +17,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import { unzipSync, strFromU8 } from 'fflate';
 import { env } from './env.js';
 
 // node:sqlite is experimental in Node 22 — lazy-init so the warning fires once at startup
@@ -44,28 +45,67 @@ function sanitize(str: string): string {
 }
 
 /**
- * Parse title and author from an epub filename.
- *
- * Handles common patterns:
- *   "Title - Author.epub"
- *   "Title - Author (Series).epub"
- *   "Title (Author).epub"
- *   "Title.epub"  →  author = "Unknown"
+ * Read title and author from an EPUB's OPF metadata.
+ * Falls back to filename parsing if the EPUB can't be read or is missing metadata.
+ */
+async function readEpubMeta(filePath: string): Promise<{ title: string; author: string }> {
+	const filename = path.basename(filePath);
+	try {
+		const buf = await fs.readFile(filePath);
+		const zip = unzipSync(new Uint8Array(buf));
+
+		// Step 1: parse META-INF/container.xml to find the OPF path
+		const containerXml = zip['META-INF/container.xml'];
+		if (!containerXml) throw new Error('No META-INF/container.xml');
+		const containerStr = strFromU8(containerXml);
+		const opfMatch = containerStr.match(/full-path="([^"]+\.opf)"/i);
+		if (!opfMatch) throw new Error('No OPF path in container.xml');
+		const opfPath = opfMatch[1];
+
+		// Step 2: parse the OPF file for dc:title and dc:creator
+		const opfData = zip[opfPath];
+		if (!opfData) throw new Error(`OPF file not found in zip: ${opfPath}`);
+		const opf = strFromU8(opfData);
+
+		const titleMatch = opf.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
+		const authorMatch = opf.match(/<dc:creator[^>]*>([^<]+)<\/dc:creator>/i);
+
+		const title = titleMatch?.[1]?.trim() || null;
+		const author = authorMatch?.[1]?.trim() || null;
+
+		if (title && author) {
+			console.log(`[calibre-db] EPUB metadata: title="${title}" author="${author}"`);
+			return { title, author };
+		}
+		if (title) {
+			console.log(`[calibre-db] EPUB metadata: title="${title}", no author — falling back`);
+			return { title, author: parseFilenameAuthor(filename) };
+		}
+		throw new Error('Missing dc:title in OPF');
+	} catch (err) {
+		console.warn(`[calibre-db] Could not read EPUB metadata from "${filename}": ${err} — falling back to filename`);
+		return parseFilename(filename);
+	}
+}
+
+/**
+ * Parse title and author from a filename as a last resort.
+ * Handles common patterns like "Title - Author.epub", "Author - Title.epub", etc.
  */
 function parseFilename(filename: string): { title: string; author: string } {
 	const stem = path.basename(filename, path.extname(filename));
-
 	// Strip trailing format tags like "(EPUB)", "(Kindle)", etc.
 	const cleaned = stem.replace(/\s*\([A-Za-z0-9]+\)\s*$/, '').trim();
-
-	// "Title - Author" pattern
 	const dashMatch = cleaned.match(/^(.+?)\s+-\s+(.+)$/);
 	if (dashMatch) {
 		return { title: dashMatch[1].trim(), author: dashMatch[2].trim() };
 	}
-
-	// Fallback: full stem as title
 	return { title: cleaned, author: 'Unknown' };
+}
+
+/** Extract just the author from a filename, used when OPF has a title but no author. */
+function parseFilenameAuthor(filename: string): string {
+	return parseFilename(filename).author;
 }
 
 /** "Roald Dahl" → "Dahl, Roald" */
@@ -98,7 +138,9 @@ export async function addBookToCalibre(flatFilePath: string): Promise<number | n
 	try {
 		const filename = path.basename(flatFilePath);
 		const ext = path.extname(filename).toLowerCase().slice(1); // "epub"
-		const { title, author } = parseFilename(filename);
+		const { title, author } = ext === 'epub'
+			? await readEpubMeta(flatFilePath)
+			: parseFilename(filename);
 
 		console.log(`[calibre-db] Adding "${title}" by "${author}" (${ext})`);
 
