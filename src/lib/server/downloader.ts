@@ -89,9 +89,14 @@ export async function startDownload(
 				try {
 					const torrent = await getTorrent(hash);
 					if (!torrent) {
+						console.warn(`[downloader] Torrent not found in qBittorrent: ${hash}`);
 						clearInterval(pollInterval);
 						return;
 					}
+
+					console.log(
+						`[downloader] Poll: state=${torrent.state} progress=${torrent.progress} content_path=${torrent.content_path}`
+					);
 
 					job.progress = torrent.progress;
 					job.downloadSpeed = torrent.dlspeed;
@@ -112,12 +117,17 @@ export async function startDownload(
 							try {
 								// qBittorrent sees /data/torrents, tv-thing mounts the same dir at /torrents
 								const localPath = torrent.content_path.replace('/data/torrents', '/torrents');
+								console.log(
+									`[downloader] Translated path: ${torrent.content_path} -> ${localPath}`
+								);
 								await copyToLibrary(localPath, mediaType);
 								console.log(`[downloader] Copied to library: ${title}`);
 							} catch (err) {
 								console.error(`[downloader] Copy to library failed:`, err);
 								// Don't fail the whole job if copy fails — torrent is still seeding
 							}
+						} else {
+							console.warn(`[downloader] content_path is empty for torrent: ${hash}`);
 						}
 
 						job.status = 'complete';

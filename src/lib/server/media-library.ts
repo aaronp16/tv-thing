@@ -51,7 +51,7 @@ export function parseReleaseName(name: string): ReleaseInfo {
 			title,
 			season: parseInt(tvMatch[2], 10),
 			episode: parseInt(tvMatch[3], 10),
-			resolution: extractResolution(clean),
+			resolution: extractResolution(clean)
 		};
 	}
 
@@ -63,7 +63,7 @@ export function parseReleaseName(name: string): ReleaseInfo {
 			title,
 			season: parseInt(altTvMatch[2], 10),
 			episode: parseInt(altTvMatch[3], 10),
-			resolution: extractResolution(clean),
+			resolution: extractResolution(clean)
 		};
 	}
 
@@ -74,7 +74,7 @@ export function parseReleaseName(name: string): ReleaseInfo {
 		return {
 			title,
 			season: parseInt(seasonMatch[2], 10),
-			resolution: extractResolution(clean),
+			resolution: extractResolution(clean)
 		};
 	}
 
@@ -87,14 +87,14 @@ export function parseReleaseName(name: string): ReleaseInfo {
 		return {
 			title,
 			year: century + parseInt(yearStr, 10),
-			resolution: extractResolution(clean),
+			resolution: extractResolution(clean)
 		};
 	}
 
 	// Fallback: just clean the name
 	return {
 		title: clean.replace(/[._]/g, ' ').trim(),
-		resolution: extractResolution(clean),
+		resolution: extractResolution(clean)
 	};
 }
 
@@ -146,21 +146,40 @@ export function getDestinationPath(filename: string, mediaType: MediaType): stri
  * @returns Array of destination paths that were created
  */
 export async function copyToLibrary(sourcePath: string, mediaType: MediaType): Promise<string[]> {
+	console.log(
+		`[media-library] copyToLibrary called: sourcePath=${sourcePath} mediaType=${mediaType}`
+	);
 	const sourceInfo = await stat(sourcePath);
 	const copiedPaths: string[] = [];
 
 	// Common video extensions to copy
 	const videoExtensions = new Set([
-		'.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m4v', '.ts', '.webm',
-		'.srt', '.sub', '.idx', '.ass', '.ssa', // subtitle files too
+		'.mkv',
+		'.mp4',
+		'.avi',
+		'.mov',
+		'.wmv',
+		'.flv',
+		'.m4v',
+		'.ts',
+		'.webm',
+		'.srt',
+		'.sub',
+		'.idx',
+		'.ass',
+		'.ssa' // subtitle files too
 	]);
 
 	if (sourceInfo.isDirectory()) {
 		// Multi-file torrent: copy all video files
 		const files = await readdir(sourcePath, { recursive: true });
+		console.log(`[media-library] Directory with ${files.length} files:`, files);
 		for (const file of files) {
 			const ext = extname(String(file)).toLowerCase();
-			if (!videoExtensions.has(ext)) continue;
+			if (!videoExtensions.has(ext)) {
+				console.log(`[media-library] Skipping (not a video/sub): ${file}`);
+				continue;
+			}
 
 			const srcFile = join(sourcePath, String(file));
 			const destFile = getDestinationPath(String(file), mediaType);
@@ -175,6 +194,7 @@ export async function copyToLibrary(sourcePath: string, mediaType: MediaType): P
 		// Single file torrent
 		const filename = basename(sourcePath);
 		const ext = extname(filename).toLowerCase();
+		console.log(`[media-library] Single file: ${filename} ext=${ext}`);
 
 		if (videoExtensions.has(ext)) {
 			const destFile = getDestinationPath(filename, mediaType);
