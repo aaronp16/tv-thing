@@ -4,7 +4,7 @@ services:
     container_name: tv-thing
     restart: unless-stopped
     ports:
-      - '13338:3000'
+      - '13339:3000'
     environment:
       - TL_USERNAME=${TL_USERNAME}
       - TL_PASSWORD=${TL_PASSWORD}
