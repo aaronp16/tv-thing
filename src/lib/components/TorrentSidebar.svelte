@@ -1,17 +1,19 @@
 <script lang="ts">
-	import type { TorrentInfo, DownloadJob } from '$lib/types';
+	import type { TorrentInfo, DownloadJob, HttpDownloadJob } from '$lib/types';
 	import CoverBackfill from './CoverBackfill.svelte';
 
 	interface Props {
 		/** Jobs still being fetched from MAM (before qBittorrent has them) */
 		fetchingJobs?: DownloadJob[];
+		/** Active Anna's Archive HTTP download jobs */
+		annaHttpJobs?: HttpDownloadJob[];
 		/** Whether to show the large title (mobile full-screen mode) */
 		showTitle?: boolean;
 		/** Callback when the downloading count changes */
 		onCountChange?: (count: number) => void;
 	}
 
-	let { fetchingJobs = [], showTitle = false, onCountChange }: Props = $props();
+	let { fetchingJobs = [], annaHttpJobs = [], showTitle = false, onCountChange }: Props = $props();
 
 	let torrents = $state<TorrentInfo[]>([]);
 	let activeTab = $state<'downloading' | 'seeding'>('downloading');
@@ -44,9 +46,13 @@
 
 	const seeding = $derived(torrents.filter((t) => t.status === 'seeding'));
 
+	const activeAnnaJobs = $derived(annaHttpJobs.filter((j) => j.status === 'downloading'));
+
+	const totalDownloading = $derived(downloading.length + activeAnnaJobs.length);
+
 	// Notify parent when downloading count changes
 	$effect(() => {
-		onCountChange?.(downloading.length);
+		onCountChange?.(totalDownloading);
 	});
 
 	async function fetchTorrents() {
@@ -81,7 +87,8 @@
 
 	// Start/stop polling based on whether there are active downloads
 	$effect(() => {
-		const hasActive = downloading.length > 0 || fetchingJobs.length > 0;
+		const hasActive =
+			downloading.length > 0 || fetchingJobs.length > 0 || activeAnnaJobs.length > 0;
 		if (hasActive) {
 			startPolling();
 		} else {
@@ -119,27 +126,33 @@
 			<button
 				type="button"
 				onclick={() => (activeTab = 'downloading')}
-				class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'downloading'
+				class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors {activeTab ===
+				'downloading'
 					? 'bg-neutral-700 text-white'
 					: 'text-neutral-400 hover:text-neutral-200'}"
 			>
 				Downloading
-				{#if downloading.length > 0}
-					<span class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500/20 px-1 text-[10px] font-semibold text-blue-400">
-						{downloading.length}
+				{#if totalDownloading > 0}
+					<span
+						class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500/20 px-1 text-[10px] font-semibold text-blue-400"
+					>
+						{totalDownloading}
 					</span>
 				{/if}
 			</button>
 			<button
 				type="button"
 				onclick={() => (activeTab = 'seeding')}
-				class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'seeding'
+				class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors {activeTab ===
+				'seeding'
 					? 'bg-neutral-700 text-white'
 					: 'text-neutral-400 hover:text-neutral-200'}"
 			>
 				Seeding
 				{#if seeding.length > 0}
-					<span class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-green-500/20 px-1 text-[10px] font-semibold text-green-400">
+					<span
+						class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-green-500/20 px-1 text-[10px] font-semibold text-green-400"
+					>
 						{seeding.length}
 					</span>
 				{/if}
@@ -153,29 +166,51 @@
 	<!-- Content -->
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-5">
 		{#if activeTab === 'downloading'}
-			{#if loading && downloading.length === 0}
+			{#if loading && totalDownloading === 0}
 				<div class="flex flex-col items-center justify-center py-12">
 					<svg class="h-8 w-8 animate-spin text-neutral-600" viewBox="0 0 24 24" fill="none">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
+						></circle>
+						<path
+							class="opacity-75"
+							fill="currentColor"
+							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+						></path>
 					</svg>
 				</div>
-			{:else if downloading.length === 0}
+			{:else if totalDownloading === 0}
 				<div class="flex flex-col items-center justify-center py-12 text-center">
-					<svg class="mb-3 h-12 w-12 text-neutral-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+					<svg
+						class="mb-3 h-12 w-12 text-neutral-800"
+						fill="none"
+						stroke="currentColor"
+						viewBox="0 0 24 24"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="1"
+							d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"
+						/>
 					</svg>
 					<p class="text-sm text-neutral-500">Nothing downloading</p>
 				</div>
 			{:else}
 				<div class="space-y-2">
+					<!-- MAM torrent downloads -->
 					{#each downloading as torrent (torrent.infoHash)}
 						<div class="rounded-lg bg-neutral-800/50 p-3">
 							<div class="mb-2 flex items-center justify-between gap-2">
 								<span class="truncate text-sm text-white">{torrent.name}</span>
-								<span class="flex-shrink-0 text-xs font-medium text-neutral-400">
-									{Math.round(torrent.progress * 100)}%
-								</span>
+								<div class="flex flex-shrink-0 items-center gap-1.5">
+									<span
+										class="rounded bg-neutral-700 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400"
+										>MAM</span
+									>
+									<span class="text-xs font-medium text-neutral-400">
+										{Math.round(torrent.progress * 100)}%
+									</span>
+								</div>
 							</div>
 							<div class="h-1.5 w-full overflow-hidden rounded-full bg-neutral-700">
 								<div
@@ -196,39 +231,92 @@
 							</div>
 						</div>
 					{/each}
-				</div>
-			{/if}
-		{:else}
-			{#if seeding.length === 0}
-				<div class="flex flex-col items-center justify-center py-12 text-center">
-					<svg class="mb-3 h-12 w-12 text-neutral-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-					</svg>
-					<p class="text-sm text-neutral-500">Nothing seeding</p>
-				</div>
-			{:else}
-				<div class="space-y-2">
-					{#each seeding as torrent (torrent.infoHash)}
+
+					<!-- Anna's Archive HTTP downloads -->
+					{#each activeAnnaJobs as job (job.id)}
 						<div class="rounded-lg bg-neutral-800/50 p-3">
-							<div class="mb-1 flex items-center justify-between gap-2">
-								<span class="truncate text-sm text-white">{torrent.name}</span>
-								<span class="flex-shrink-0 text-xs font-medium text-green-400">
-									{torrent.ratio.toFixed(2)}
-								</span>
+							<div class="mb-2 flex items-center justify-between gap-2">
+								<span class="truncate text-sm text-white">{job.title}</span>
+								<div class="flex flex-shrink-0 items-center gap-1.5">
+									<span
+										class="rounded bg-neutral-700 px-1.5 py-0.5 text-[10px] font-medium text-neutral-400"
+										>AA</span
+									>
+									{#if job.progress >= 0}
+										<span class="text-xs font-medium text-neutral-400">
+											{Math.round(job.progress * 100)}%
+										</span>
+									{/if}
+								</div>
 							</div>
-							<div class="flex items-center gap-3 text-xs text-neutral-500">
-								<span>Uploaded {formatBytes(torrent.uploaded)}</span>
-								{#if torrent.uploadSpeed > 0}
-									<span>{formatSpeed(torrent.uploadSpeed)}</span>
+							<div class="h-1.5 w-full overflow-hidden rounded-full bg-neutral-700">
+								{#if job.progress >= 0}
+									<div
+										class="h-full bg-blue-500 transition-all duration-300"
+										style="width: {Math.round(job.progress * 100)}%"
+									></div>
+								{:else}
+									<!-- Indeterminate progress bar -->
+									<div
+										class="h-full w-1/3 animate-[slide_1.5s_ease-in-out_infinite] rounded-full bg-blue-500"
+									></div>
 								{/if}
-								{#if torrent.numPeers > 0}
-									<span>{torrent.numPeers} peers</span>
+							</div>
+							<div class="mt-1.5 flex items-center gap-3 text-xs text-neutral-500">
+								{#if job.downloadSpeed > 0}
+									<span>{formatSpeed(job.downloadSpeed)}</span>
+								{/if}
+								{#if job.bytesDownloaded > 0 && job.totalBytes > 0}
+									<span>{formatBytes(job.bytesDownloaded)} / {formatBytes(job.totalBytes)}</span>
+								{:else if job.bytesDownloaded > 0}
+									<span>{formatBytes(job.bytesDownloaded)}</span>
+								{:else}
+									<span>Connecting...</span>
 								{/if}
 							</div>
 						</div>
 					{/each}
 				</div>
 			{/if}
+		{:else if seeding.length === 0}
+			<div class="flex flex-col items-center justify-center py-12 text-center">
+				<svg
+					class="mb-3 h-12 w-12 text-neutral-800"
+					fill="none"
+					stroke="currentColor"
+					viewBox="0 0 24 24"
+				>
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="1"
+						d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+					/>
+				</svg>
+				<p class="text-sm text-neutral-500">Nothing seeding</p>
+			</div>
+		{:else}
+			<div class="space-y-2">
+				{#each seeding as torrent (torrent.infoHash)}
+					<div class="rounded-lg bg-neutral-800/50 p-3">
+						<div class="mb-1 flex items-center justify-between gap-2">
+							<span class="truncate text-sm text-white">{torrent.name}</span>
+							<span class="flex-shrink-0 text-xs font-medium text-green-400">
+								{torrent.ratio.toFixed(2)}
+							</span>
+						</div>
+						<div class="flex items-center gap-3 text-xs text-neutral-500">
+							<span>Uploaded {formatBytes(torrent.uploaded)}</span>
+							{#if torrent.uploadSpeed > 0}
+								<span>{formatSpeed(torrent.uploadSpeed)}</span>
+							{/if}
+							{#if torrent.numPeers > 0}
+								<span>{torrent.numPeers} peers</span>
+							{/if}
+						</div>
+					</div>
+				{/each}
+			</div>
 		{/if}
 	</div>
 </div>

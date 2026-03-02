@@ -1,19 +1,33 @@
 <script lang="ts">
 	import ResultsGrid from '$lib/components/ResultsGrid.svelte';
+	import AnnaBookCard from '$lib/components/AnnaBookCard.svelte';
 	import TorrentSidebar from '$lib/components/TorrentSidebar.svelte';
 	import LibraryPanel from '$lib/components/LibraryPanel.svelte';
 	import MobileTabBar, { type MobileTab } from '$lib/components/MobileTabBar.svelte';
 	import DownloadsModal from '$lib/components/DownloadsModal.svelte';
 	import DownloadsHeaderIndicator from '$lib/components/DownloadsHeaderIndicator.svelte';
-	import type { BookResult, SearchField, DownloadJob } from '$lib/types';
+	import type {
+		BookResult,
+		SearchField,
+		DownloadJob,
+		AnnaSearchResult,
+		HttpDownloadJob
+	} from '$lib/types';
 	import { toasts } from '$lib/stores/toasts';
 	import { onMount } from 'svelte';
 
 	// Search state
 	let searchField: SearchField = $state('title');
 	let searchQuery: string = $state('');
+	let searchSource: 'mam' | 'anna' = $state('anna');
+
+	// MAM results
 	let books: BookResult[] = $state([]);
 	let totalResults: number = $state(0);
+
+	// Anna's Archive results
+	let annaBooks: AnnaSearchResult[] = $state([]);
+
 	let loading = $state(false);
 	let hasSearched = $state(false);
 	let error = $state<string | null>(null);
@@ -21,8 +35,14 @@
 	// Track downloading book IDs (to prevent duplicate downloads)
 	let downloadingIds = $state<Set<number>>(new Set());
 
+	// Track Anna's Archive downloading MD5s
+	let annaDownloadingMd5s = $state<Set<string>>(new Set());
+
 	// Jobs still being fetched from MAM / in early stages before qBittorrent picks them up
 	let fetchingJobs = $state<DownloadJob[]>([]);
+
+	// Active Anna's Archive HTTP download jobs
+	let annaHttpJobs = $state<HttpDownloadJob[]>([]);
 
 	// Sidebar ref for triggering refresh
 	let sidebarRef: TorrentSidebar | undefined = $state();
@@ -76,31 +96,64 @@
 		return currIndex > prevIndex ? 'tab-slide-left' : 'tab-slide-right';
 	});
 
+	function handleSourceChange(source: 'mam' | 'anna') {
+		searchSource = source;
+		// Clear previous results immediately
+		books = [];
+		annaBooks = [];
+		totalResults = 0;
+		error = null;
+		// Re-run the search in the new source if a query is already present
+		if (searchQuery.trim()) {
+			performSearch(searchQuery.trim(), searchField);
+		} else {
+			hasSearched = false;
+		}
+	}
+
 	async function performSearch(query: string, field: SearchField) {
 		loading = true;
 		error = null;
 		hasSearched = true;
 
-		try {
-			const response = await fetch(
-				`/api/search?q=${encodeURIComponent(query)}&field=${field}`
-			);
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Search failed');
+		if (searchSource === 'anna') {
+			try {
+				const response = await fetch(`/api/anna/search?q=${encodeURIComponent(query)}`);
+				const data = await response.json();
+				if (!response.ok) throw new Error(data.error || 'Search failed');
+				annaBooks = data.results;
+				books = [];
+				totalResults = data.results.length;
+			} catch (e) {
+				const message = e instanceof Error ? e.message : 'Search failed';
+				error = message;
+				toasts.error(message);
+				annaBooks = [];
+				totalResults = 0;
+			} finally {
+				loading = false;
 			}
+		} else {
+			try {
+				const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&field=${field}`);
+				const data = await response.json();
 
-			books = data.results;
-			totalResults = data.total;
-		} catch (e) {
-			const message = e instanceof Error ? e.message : 'Search failed';
-			error = message;
-			toasts.error(message);
-			books = [];
-			totalResults = 0;
-		} finally {
-			loading = false;
+				if (!response.ok) {
+					throw new Error(data.error || 'Search failed');
+				}
+
+				books = data.results;
+				annaBooks = [];
+				totalResults = data.total;
+			} catch (e) {
+				const message = e instanceof Error ? e.message : 'Search failed';
+				error = message;
+				toasts.error(message);
+				books = [];
+				totalResults = 0;
+			} finally {
+				loading = false;
+			}
 		}
 	}
 
@@ -121,6 +174,7 @@
 		searchQuery = '';
 		hasSearched = false;
 		books = [];
+		annaBooks = [];
 		totalResults = 0;
 		error = null;
 	}
@@ -215,6 +269,84 @@
 			fetchingJobs = fetchingJobs.filter((j) => j.mamId !== book.id);
 		}
 	}
+
+	async function handleAnnaDownload(book: AnnaSearchResult) {
+		if (annaDownloadingMd5s.has(book.md5)) {
+			toasts.warning('Already downloading this book');
+			return;
+		}
+
+		annaDownloadingMd5s = new Set([...annaDownloadingMd5s, book.md5]);
+
+		// Auto-switch to downloads tab on mobile
+		if (isMobile && mobileTab !== 'downloads') {
+			handleMobileTabChange('downloads');
+		}
+
+		try {
+			const response = await fetch('/api/anna/download', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ md5: book.md5, title: book.title, authors: book.authors })
+			});
+
+			const data = await response.json();
+
+			if (!response.ok) {
+				throw new Error(data.error || 'Failed to start download');
+			}
+
+			const jobId = data.jobId;
+			toasts.success(`Started downloading: ${book.title}`);
+
+			const eventSource = new EventSource(`/api/anna/progress/${jobId}`);
+
+			eventSource.onmessage = (event) => {
+				const payload = JSON.parse(event.data);
+
+				if (payload.type === 'progress') {
+					const job = payload as HttpDownloadJob;
+					// Update or insert the job in our local list
+					const existing = annaHttpJobs.findIndex((j) => j.id === job.id);
+					if (existing >= 0) {
+						annaHttpJobs = annaHttpJobs.map((j) => (j.id === job.id ? job : j));
+					} else {
+						annaHttpJobs = [...annaHttpJobs, job];
+					}
+				} else if (payload.type === 'done') {
+					const { status, error: jobError } = payload as { status: string; error?: string };
+					if (status === 'complete') {
+						toasts.success(`Download complete: ${book.title}`);
+						setTimeout(() => libraryPanelRef?.refresh(), 1000);
+					} else if (status === 'error') {
+						toasts.error(`Download failed: ${jobError || 'Unknown error'}`);
+					}
+
+					eventSource.close();
+					annaDownloadingMd5s = new Set([...annaDownloadingMd5s].filter((m) => m !== book.md5));
+					// Remove the job from the list after a short delay so the user sees 100%
+					setTimeout(() => {
+						annaHttpJobs = annaHttpJobs.filter((j) => j.md5 !== book.md5);
+					}, 3000);
+				}
+			};
+
+			eventSource.onerror = () => {
+				eventSource.close();
+				annaDownloadingMd5s = new Set([...annaDownloadingMd5s].filter((m) => m !== book.md5));
+				annaHttpJobs = annaHttpJobs.filter((j) => j.md5 !== book.md5);
+			};
+		} catch (e) {
+			const message = e instanceof Error ? e.message : 'Failed to start download';
+			toasts.error(message);
+			annaDownloadingMd5s = new Set([...annaDownloadingMd5s].filter((m) => m !== book.md5));
+		}
+	}
+
+	// Total active download count (MAM + Anna)
+	const totalDownloadingCount = $derived(
+		downloadingCount + annaHttpJobs.filter((j) => j.status === 'downloading').length
+	);
 </script>
 
 <div class="flex h-full w-full">
@@ -232,7 +364,8 @@
 							<button
 								type="button"
 								onclick={() => handleFieldChange('title')}
-								class="rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:px-4 sm:text-sm {searchField === 'title'
+								class="rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:px-4 sm:text-sm {searchField ===
+								'title'
 									? 'bg-white text-black'
 									: 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}"
 							>
@@ -241,7 +374,8 @@
 							<button
 								type="button"
 								onclick={() => handleFieldChange('author')}
-								class="rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:px-4 sm:text-sm {searchField === 'author'
+								class="rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:px-4 sm:text-sm {searchField ===
+								'author'
 									? 'bg-white text-black'
 									: 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}"
 							>
@@ -251,35 +385,105 @@
 					</div>
 
 					<div class="relative">
+						<!-- Leading icon: spinner or magnifier -->
 						<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
 							{#if loading}
 								<svg class="h-5 w-5 animate-spin text-neutral-400" viewBox="0 0 24 24" fill="none">
-									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									<circle
+										class="opacity-25"
+										cx="12"
+										cy="12"
+										r="10"
+										stroke="currentColor"
+										stroke-width="4"
+									></circle>
+									<path
+										class="opacity-75"
+										fill="currentColor"
+										d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+									></path>
 								</svg>
 							{:else}
-								<svg class="h-5 w-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+								<svg
+									class="h-5 w-5 text-neutral-400"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2"
+										d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+									/>
 								</svg>
 							{/if}
 						</div>
+
 						<input
 							type="text"
 							bind:value={searchQuery}
-							onkeydown={(e) => { if (e.key === 'Enter') handleSearch(); }}
-							placeholder={searchField === 'title' ? 'Search by book title...' : 'Search by author name...'}
-							class="w-full rounded-full border-0 bg-neutral-800 py-3 pr-12 pl-12 text-white placeholder-neutral-500 ring-1 ring-neutral-700 transition-all focus:bg-neutral-750 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+							onkeydown={(e) => {
+								if (e.key === 'Enter') handleSearch();
+							}}
+							placeholder={searchField === 'title'
+								? 'Search by book title...'
+								: 'Search by author name...'}
+							class="w-full rounded-full border-0 bg-neutral-800 py-3 pl-12 text-white placeholder-neutral-500 ring-1 ring-neutral-700 transition-all focus:bg-neutral-750 focus:ring-2 focus:ring-blue-500 focus:outline-none {searchQuery
+								? 'pr-24'
+								: 'pr-14'}"
 							disabled={loading}
 						/>
+
+						<!-- Source selector — right side of input -->
+						<div
+							class="absolute inset-y-0 right-0 flex items-center {searchQuery ? 'pr-9' : 'pr-3'}"
+						>
+							<div class="flex items-center rounded-full bg-neutral-700/60 px-2 py-1">
+								<select
+									value={searchSource}
+									onchange={(e) =>
+										handleSourceChange(
+											(e.currentTarget as HTMLSelectElement).value as 'mam' | 'anna'
+										)}
+									class="cursor-pointer appearance-none border-0 bg-transparent bg-none text-xs font-medium text-neutral-300 outline-none"
+									aria-label="Search source"
+								>
+									<option value="mam">MAM</option>
+									<option value="anna">Anna's</option>
+								</select>
+								<!-- Chevron icon -->
+								<svg
+									class="pointer-events-none ml-1 h-3 w-3 flex-shrink-0 text-neutral-400"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2.5"
+										d="M19 9l-7 7-7-7"
+									/>
+								</svg>
+							</div>
+						</div>
+
+						<!-- Clear button -->
 						{#if searchQuery}
 							<button
 								type="button"
 								onclick={clearSearch}
-								class="absolute inset-y-0 right-0 flex items-center pr-4 text-neutral-400 transition-colors hover:text-white"
+								class="absolute inset-y-0 right-0 flex items-center pr-3 text-neutral-400 transition-colors hover:text-white"
 								aria-label="Clear search"
 							>
-								<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+								<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2"
+										d="M6 18L18 6M6 6l12 12"
+									/>
 								</svg>
 							</button>
 						{/if}
@@ -291,8 +495,18 @@
 					{#if error}
 						<div class="flex flex-col items-center justify-center py-12 text-center">
 							<div class="mb-4 rounded-full bg-red-900/30 p-4">
-								<svg class="h-8 w-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+								<svg
+									class="h-8 w-8 text-red-400"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2"
+										d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+									/>
 								</svg>
 							</div>
 							<p class="text-lg font-medium text-red-400">{error}</p>
@@ -300,17 +514,85 @@
 					{:else if loading}
 						<div class="flex flex-col items-center justify-center py-16">
 							<svg class="h-10 w-10 animate-spin text-neutral-500" viewBox="0 0 24 24" fill="none">
-								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								<circle
+									class="opacity-25"
+									cx="12"
+									cy="12"
+									r="10"
+									stroke="currentColor"
+									stroke-width="4"
+								></circle>
+								<path
+									class="opacity-75"
+									fill="currentColor"
+									d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+								></path>
 							</svg>
 							<p class="mt-4 text-neutral-500">Searching...</p>
 						</div>
 					{:else if hasSearched}
-						<ResultsGrid {books} total={totalResults} onDownload={handleDownload} {downloadingIds} />
+						{#if searchSource === 'anna'}
+							<!-- Anna's Archive results -->
+							{#if annaBooks.length === 0}
+								<div class="flex flex-col items-center justify-center py-16 text-center">
+									<svg
+										class="mb-4 h-16 w-16 text-neutral-700"
+										fill="none"
+										stroke="currentColor"
+										viewBox="0 0 24 24"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											stroke-width="1.5"
+											d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+										/>
+									</svg>
+									<p class="text-lg font-medium text-neutral-400">No results found</p>
+									<p class="mt-1 text-sm text-neutral-500">Try a different search term</p>
+								</div>
+							{:else}
+								<div class="flex flex-col gap-4">
+									<div class="animate-fade-in flex items-center justify-between">
+										<h2 class="text-lg font-semibold text-white">Results</h2>
+										<span class="text-sm text-neutral-500">{annaBooks.length} results</span>
+									</div>
+									<div class="flex flex-col gap-1">
+										{#each annaBooks as book (book.md5)}
+											<div class="animate-fade-in">
+												<AnnaBookCard
+													{book}
+													onDownload={handleAnnaDownload}
+													downloading={annaDownloadingMd5s.has(book.md5)}
+												/>
+											</div>
+										{/each}
+									</div>
+								</div>
+							{/if}
+						{:else}
+							<!-- MAM results -->
+							<ResultsGrid
+								{books}
+								total={totalResults}
+								onDownload={handleDownload}
+								{downloadingIds}
+							/>
+						{/if}
 					{:else}
 						<div class="flex flex-col items-center justify-center py-16 text-center">
-							<svg class="mb-4 h-20 w-20 text-neutral-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+							<svg
+								class="mb-4 h-20 w-20 text-neutral-800"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="1"
+									d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+								/>
 							</svg>
 							<p class="text-lg font-medium text-neutral-400">Find your books</p>
 							<p class="mt-1 text-sm text-neutral-500">Search by title or author</p>
@@ -325,11 +607,7 @@
 			{#key mobileTab}
 				<div class="absolute inset-0 flex flex-col bg-neutral-900 {tabSlideClass}">
 					<div class="flex-1 overflow-hidden p-4 pb-20">
-						<LibraryPanel
-							bind:this={libraryPanelRef}
-							forcedTab="library"
-							hideTabBar={true}
-						/>
+						<LibraryPanel bind:this={libraryPanelRef} forcedTab="library" hideTabBar={true} />
 					</div>
 				</div>
 			{/key}
@@ -345,6 +623,7 @@
 					<div class="flex-1 overflow-hidden px-4 pb-20">
 						<TorrentSidebar
 							{fetchingJobs}
+							{annaHttpJobs}
 							onCountChange={(count) => (downloadingCount = count)}
 						/>
 					</div>
@@ -355,15 +634,12 @@
 
 	<!-- Side Panel (right side on desktop, hidden on mobile) - Library only -->
 	<div class="hidden flex-col md:flex md:w-1/3">
-		<LibraryPanel
-			bind:this={libraryPanelRef}
-			showLargeTitle={true}
-		>
+		<LibraryPanel bind:this={libraryPanelRef} showLargeTitle={true}>
 			{#snippet titleRight()}
 				<div class="flex items-center gap-3">
 					<DownloadsHeaderIndicator
 						onClick={openDownloadsModal}
-						{downloadingCount}
+						downloadingCount={totalDownloadingCount}
 						{fetchingJobs}
 					/>
 				</div>
@@ -376,7 +652,7 @@
 {#if isMobile}
 	<MobileTabBar
 		activeTab={mobileTab}
-		activeDownloadCount={downloadingCount + fetchingJobs.length}
+		activeDownloadCount={totalDownloadingCount + fetchingJobs.length}
 		onTabChange={handleMobileTabChange}
 	/>
 {/if}
@@ -386,5 +662,6 @@
 	isOpen={isDownloadsModalOpen}
 	onClose={closeDownloadsModal}
 	{fetchingJobs}
+	{annaHttpJobs}
 	onCountChange={(count) => (downloadingCount = count)}
 />
