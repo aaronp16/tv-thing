@@ -29,15 +29,6 @@ RUN npm ci --omit=dev
 
 # Environment variables
 ENV NODE_ENV=production
-ENV TL_USERNAME=
-ENV TL_PASSWORD=
-ENV TL_2FA_TOKEN=
-ENV QB_URL=http://qbittorrent:8080
-ENV QB_USERNAME=admin
-ENV QB_PASSWORD=
-ENV QB_SAVE_PATH=
-ENV MEDIA_DIR=/data
-ENV TORRENT_DOWNLOAD_DIR=/torrents
 ENV PORT=3000
 ENV HOST=0.0.0.0
 
