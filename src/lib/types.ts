@@ -1,64 +1,126 @@
 /**
- * Shared types for book-thing
+ * Shared types for tv-thing
  */
 
-/** Search result entry from MyAnonamouse */
-export interface MamEntry {
-	id: number;
-	title: string;
-	author_info: string;
-	narrator_info: string;
-	series_info: string;
-	category: number;
-	catname: string;
-	categories: string;
-	size: string;
-	numfiles: number;
-	filetype: string;
+/** TorrentLeech category IDs */
+export const TL_CATEGORIES = {
+	// TV
+	TV_EPISODES_SD: 26,
+	TV_EPISODES_HD: 32,
+	TV_BOXSETS: 27,
+	TV_FOREIGN: 44,
+	TV_ANIME: 34,
+	TV_CARTOONS: 35,
+	// Movies
+	MOVIES_CAM: 8,
+	MOVIES_TS: 9,
+	MOVIES_DVDRIP: 11,
+	MOVIES_WEBRIP: 37,
+	MOVIES_HDRIP: 43,
+	MOVIES_BLURAY_RIP: 14,
+	MOVIES_DVDR: 12,
+	MOVIES_BLURAY: 13,
+	MOVIES_4K: 47,
+	MOVIES_BOXSETS: 15,
+	MOVIES_FOREIGN: 36,
+	// Other
+	DOCUMENTARIES: 29,
+} as const;
+
+/** Search category filter the user selects */
+export type SearchCategory = 'tv-episodes' | 'tv-boxsets' | 'movies' | 'documentaries';
+
+/** Map search categories to TorrentLeech category IDs */
+export const CATEGORY_MAP: Record<SearchCategory, number[]> = {
+	'tv-episodes': [
+		TL_CATEGORIES.TV_EPISODES_SD,
+		TL_CATEGORIES.TV_EPISODES_HD,
+		TL_CATEGORIES.TV_FOREIGN,
+		TL_CATEGORIES.TV_ANIME,
+		TL_CATEGORIES.TV_CARTOONS,
+	],
+	'tv-boxsets': [TL_CATEGORIES.TV_BOXSETS],
+	movies: [
+		TL_CATEGORIES.MOVIES_CAM,
+		TL_CATEGORIES.MOVIES_TS,
+		TL_CATEGORIES.MOVIES_DVDRIP,
+		TL_CATEGORIES.MOVIES_WEBRIP,
+		TL_CATEGORIES.MOVIES_HDRIP,
+		TL_CATEGORIES.MOVIES_BLURAY_RIP,
+		TL_CATEGORIES.MOVIES_DVDR,
+		TL_CATEGORIES.MOVIES_BLURAY,
+		TL_CATEGORIES.MOVIES_4K,
+		TL_CATEGORIES.MOVIES_BOXSETS,
+		TL_CATEGORIES.MOVIES_FOREIGN,
+	],
+	documentaries: [TL_CATEGORIES.DOCUMENTARIES],
+};
+
+/** Media type for library organization */
+export type MediaType = 'tv' | 'movie';
+
+/** Infer media type from search category */
+export function mediaTypeFromCategory(cat: SearchCategory): MediaType {
+	return cat === 'movies' || cat === 'documentaries' ? 'movie' : 'tv';
+}
+
+/** Category display labels */
+export const CATEGORY_LABELS: Record<SearchCategory, string> = {
+	'tv-episodes': 'TV Episodes',
+	'tv-boxsets': 'TV Boxsets',
+	movies: 'Movies',
+	documentaries: 'Documentaries',
+};
+
+/** Raw entry from TorrentLeech API */
+export interface TLEntry {
+	fid: number;
+	filename: string;
+	name: string;
+	addedTimestamp: string;
+	categoryID: number;
+	size: number;
 	seeders: number;
 	leechers: number;
-	times_completed: number;
-	added: string;
-	free: number;
-	vip: number;
-	lang_code: string;
-	language: number;
-	tags: number | string;
-	browseflags: number;
-	comments: number;
+	completed: number;
+	new: boolean;
+	rating: number;
+	numComments: number;
+	tags: string;
+	imdbID: string;
+	igdbID: string;
+	tvmazeID: string;
+	download_multiplier: number;
 }
 
-/** Parsed author/narrator/series info */
-export interface PersonInfo {
-	id: number;
-	name: string;
+/** TorrentLeech search response */
+export interface TLSearchResponse {
+	numFound: number;
+	torrentList: TLEntry[];
 }
 
-/** Parsed book entry for the frontend */
-export interface BookResult {
+/** Parsed search result for the frontend */
+export interface SearchResult {
 	id: number;
 	title: string;
-	authors: PersonInfo[];
-	narrators: PersonInfo[];
-	series: { id: number; name: string; number?: string }[];
-	category: string;
-	isAudiobook: boolean;
-	isEbook: boolean;
+	name: string;
+	category: SearchCategory;
+	categoryName: string;
 	size: number;
 	sizeFormatted: string;
-	numFiles: number;
-	fileType: string;
 	seeders: number;
 	leechers: number;
-	snatched: number;
+	completed: number;
 	freeleech: boolean;
-	vip: boolean;
-	language: string;
 	added: string;
+	filename: string;
+	imdbID: string;
+	tags: string;
 }
 
-/** Search field filter */
-export type SearchField = 'title' | 'author';
+/** Sort options for TorrentLeech */
+export type SortBy = 'added' | 'seeders' | 'size' | 'nameSort';
+export type SortOrder = 'desc' | 'asc';
 
 /** Torrent status */
 export type TorrentStatus = 'downloading' | 'seeding' | 'paused' | 'error';
@@ -78,88 +140,19 @@ export interface TorrentInfo {
 	status: TorrentStatus;
 	files: string[];
 	addedAt: string;
-	/** The MAM torrent ID this was downloaded from */
-	mamId?: number;
 }
 
 /** Download job for SSE progress */
 export interface DownloadJob {
 	id: string;
-	mamId: number;
+	torrentId: number;
 	title: string;
+	mediaType: MediaType;
 	infoHash?: string;
-	status: 'fetching' | 'downloading' | 'complete' | 'error';
+	status: 'fetching' | 'downloading' | 'copying' | 'complete' | 'error';
 	progress: number;
 	downloadSpeed: number;
 	uploadSpeed: number;
 	numPeers: number;
 	error?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Anna's Archive types
-// ---------------------------------------------------------------------------
-
-/** A search result from Anna's Archive */
-export interface AnnaSearchResult {
-	/** MD5 hash — unique identifier for this file on Anna's Archive */
-	md5: string;
-	title: string;
-	authors: string;
-	coverUrl?: string;
-	extension: string;
-	sizeBytes: number;
-	year?: number;
-	language?: string;
-	/** Publisher name e.g. "Tor Books" */
-	publisher?: string;
-	/** Content type from AA e.g. "Book (fiction)", "Book (unknown)", "Magazine" */
-	contentType?: string;
-}
-
-/** Detailed book info fetched from an Anna's Archive MD5 page */
-export interface AnnaBookDetail {
-	md5: string;
-	title: string;
-	authors: string[];
-	coverUrl?: string;
-	description?: string;
-	extension: string;
-	publisher?: string;
-	year?: number;
-	language?: string;
-	isbn: string[];
-	downloadLinks: {
-		type: 'ipfs' | 'libgen_rs' | 'libgen_li' | 'zlib' | 'other';
-		url: string;
-		label: string;
-	}[];
-}
-
-/** An in-progress HTTP download from Anna's Archive */
-export interface HttpDownloadJob {
-	id: string;
-	source: 'anna';
-	md5: string;
-	title: string;
-	authors: string;
-	extension: string;
-	status: 'downloading' | 'complete' | 'error';
-	/** 0.0–1.0, or -1 if Content-Length is unknown */
-	progress: number;
-	bytesDownloaded: number;
-	/** -1 if Content-Length header was absent */
-	totalBytes: number;
-	downloadSpeed: number;
-	error?: string;
-}
-
-/** A file in the library */
-export interface LibraryFile {
-	name: string;
-	path: string;
-	relativePath: string;
-	extension: string;
-	size: number;
-	modifiedAt: string;
 }

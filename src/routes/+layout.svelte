@@ -6,7 +6,7 @@
 </script>
 
 <svelte:head>
-	<title>book-thing</title>
+	<title>tv-thing</title>
 </svelte:head>
 
 <div class="flex h-screen flex-col bg-neutral-900 text-white">

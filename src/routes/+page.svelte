@@ -1,54 +1,31 @@
 <script lang="ts">
 	import ResultsGrid from '$lib/components/ResultsGrid.svelte';
-	import AnnaBookCard from '$lib/components/AnnaBookCard.svelte';
 	import TorrentSidebar from '$lib/components/TorrentSidebar.svelte';
-	import LibraryPanel from '$lib/components/LibraryPanel.svelte';
 	import MobileTabBar, { type MobileTab } from '$lib/components/MobileTabBar.svelte';
 	import DownloadsModal from '$lib/components/DownloadsModal.svelte';
 	import DownloadsHeaderIndicator from '$lib/components/DownloadsHeaderIndicator.svelte';
-	import type {
-		BookResult,
-		SearchField,
-		DownloadJob,
-		AnnaSearchResult,
-		HttpDownloadJob
-	} from '$lib/types';
+	import type { SearchResult, SearchCategory, DownloadJob } from '$lib/types';
+	import { CATEGORY_LABELS, mediaTypeFromCategory } from '$lib/types';
 	import { toasts } from '$lib/stores/toasts';
 	import { onMount } from 'svelte';
 
 	// Search state
-	let searchField: SearchField = $state('title');
 	let searchQuery: string = $state('');
-	let searchSource: 'mam' | 'anna' = $state('anna');
-
-	// MAM results
-	let books: BookResult[] = $state([]);
+	let searchCategory: SearchCategory = $state('tv-episodes');
+	let results: SearchResult[] = $state([]);
 	let totalResults: number = $state(0);
-
-	// Anna's Archive results
-	let annaBooks: AnnaSearchResult[] = $state([]);
-
 	let loading = $state(false);
 	let hasSearched = $state(false);
 	let error = $state<string | null>(null);
 
-	// Track downloading book IDs (to prevent duplicate downloads)
+	// Track downloading torrent IDs (to prevent duplicate downloads)
 	let downloadingIds = $state<Set<number>>(new Set());
 
-	// Track Anna's Archive downloading MD5s
-	let annaDownloadingMd5s = $state<Set<string>>(new Set());
-
-	// Jobs still being fetched from MAM / in early stages before qBittorrent picks them up
+	// Jobs still being fetched from TorrentLeech / in early stages before qBittorrent picks them up
 	let fetchingJobs = $state<DownloadJob[]>([]);
-
-	// Active Anna's Archive HTTP download jobs
-	let annaHttpJobs = $state<HttpDownloadJob[]>([]);
 
 	// Sidebar ref for triggering refresh
 	let sidebarRef: TorrentSidebar | undefined = $state();
-
-	// Library panel ref for triggering refresh
-	let libraryPanelRef: LibraryPanel | undefined = $state();
 
 	// Downloading count from sidebar (for mobile badge & header indicator)
 	let downloadingCount = $state(0);
@@ -70,7 +47,6 @@
 	}
 
 	onMount(() => {
-		// Setup media query listener for mobile detection
 		const mediaQuery = window.matchMedia('(max-width: 767px)');
 		isMobile = mediaQuery.matches;
 
@@ -89,109 +65,83 @@
 	}
 
 	// Compute slide direction for tab transitions
-	const tabOrder: MobileTab[] = ['search', 'library', 'downloads'];
+	const tabOrder: MobileTab[] = ['search', 'downloads'];
 	const tabSlideClass = $derived.by(() => {
 		const prevIndex = tabOrder.indexOf(previousMobileTab);
 		const currIndex = tabOrder.indexOf(mobileTab);
 		return currIndex > prevIndex ? 'tab-slide-left' : 'tab-slide-right';
 	});
 
-	function handleSourceChange(source: 'mam' | 'anna') {
-		searchSource = source;
-		// Clear previous results immediately
-		books = [];
-		annaBooks = [];
-		totalResults = 0;
-		error = null;
-		// Re-run the search in the new source if a query is already present
-		if (searchQuery.trim()) {
-			performSearch(searchQuery.trim(), searchField);
-		} else {
-			hasSearched = false;
+	function handleCategoryChange(category: SearchCategory) {
+		searchCategory = category;
+		// Re-run the search in the new category if a query is already present
+		if (searchQuery.trim() && hasSearched) {
+			performSearch(searchQuery.trim(), category);
 		}
 	}
 
-	async function performSearch(query: string, field: SearchField) {
+	async function performSearch(query: string, category: SearchCategory) {
 		loading = true;
 		error = null;
 		hasSearched = true;
 
-		if (searchSource === 'anna') {
-			try {
-				const response = await fetch(`/api/anna/search?q=${encodeURIComponent(query)}`);
-				const data = await response.json();
-				if (!response.ok) throw new Error(data.error || 'Search failed');
-				annaBooks = data.results;
-				books = [];
-				totalResults = data.results.length;
-			} catch (e) {
-				const message = e instanceof Error ? e.message : 'Search failed';
-				error = message;
-				toasts.error(message);
-				annaBooks = [];
-				totalResults = 0;
-			} finally {
-				loading = false;
-			}
-		} else {
-			try {
-				const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&field=${field}`);
-				const data = await response.json();
+		try {
+			const params = new URLSearchParams({
+				q: query,
+				category,
+				sort: 'seeders',
+				order: 'desc'
+			});
+			const response = await fetch(`/api/search?${params}`);
+			const data = await response.json();
 
-				if (!response.ok) {
-					throw new Error(data.error || 'Search failed');
-				}
-
-				books = data.results;
-				annaBooks = [];
-				totalResults = data.total;
-			} catch (e) {
-				const message = e instanceof Error ? e.message : 'Search failed';
-				error = message;
-				toasts.error(message);
-				books = [];
-				totalResults = 0;
-			} finally {
-				loading = false;
+			if (!response.ok) {
+				throw new Error(data.error || 'Search failed');
 			}
+
+			results = data.results;
+			totalResults = data.total;
+		} catch (e) {
+			const message = e instanceof Error ? e.message : 'Search failed';
+			error = message;
+			toasts.error(message);
+			results = [];
+			totalResults = 0;
+		} finally {
+			loading = false;
 		}
 	}
 
 	function handleSearch() {
 		if (searchQuery.trim()) {
-			performSearch(searchQuery.trim(), searchField);
-		}
-	}
-
-	function handleFieldChange(field: SearchField) {
-		searchField = field;
-		if (searchQuery.trim() && hasSearched) {
-			performSearch(searchQuery.trim(), field);
+			performSearch(searchQuery.trim(), searchCategory);
 		}
 	}
 
 	function clearSearch() {
 		searchQuery = '';
 		hasSearched = false;
-		books = [];
-		annaBooks = [];
+		results = [];
 		totalResults = 0;
 		error = null;
 	}
 
-	async function handleDownload(book: BookResult) {
-		if (downloadingIds.has(book.id)) {
-			toasts.warning('Already downloading this book');
+	async function handleDownload(result: SearchResult) {
+		if (downloadingIds.has(result.id)) {
+			toasts.warning('Already downloading this torrent');
 			return;
 		}
 
-		downloadingIds = new Set([...downloadingIds, book.id]);
+		downloadingIds = new Set([...downloadingIds, result.id]);
+
+		const mediaType = mediaTypeFromCategory(result.category);
 
 		// Create an initial fetching job for the sidebar to show immediately
 		const tempJob: DownloadJob = {
-			id: `fetching-${book.id}`,
-			mamId: book.id,
-			title: book.title,
+			id: `fetching-${result.id}`,
+			torrentId: result.id,
+			title: result.title,
+			mediaType,
 			status: 'fetching',
 			progress: 0,
 			downloadSpeed: 0,
@@ -209,7 +159,12 @@
 			const response = await fetch('/api/download', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ mamId: book.id, title: book.title })
+				body: JSON.stringify({
+					torrentId: result.id,
+					filename: result.filename,
+					title: result.title,
+					mediaType
+				})
 			});
 
 			const data = await response.json();
@@ -219,7 +174,7 @@
 			}
 
 			const jobId = data.jobId;
-			toasts.success(`Started downloading: ${book.title}`);
+			toasts.success(`Started downloading: ${result.title}`);
 
 			// Tell sidebar to refresh immediately
 			sidebarRef?.refresh();
@@ -234,119 +189,46 @@
 					// Update the fetching job with real data
 					if (job.status === 'downloading' || job.status === 'complete') {
 						// Remove from fetchingJobs — qBittorrent has it now, sidebar will pick it up
-						fetchingJobs = fetchingJobs.filter((j) => j.mamId !== book.id);
+						fetchingJobs = fetchingJobs.filter((j) => j.torrentId !== result.id);
 						sidebarRef?.refresh();
 					}
 				} else if (payload.type === 'done') {
 					const job = payload as { status: string; error?: string };
 					if (job.status === 'complete') {
-						toasts.success(`Download complete: ${book.title}`);
+						toasts.success(`Download complete: ${result.title}`);
 					} else if (job.status === 'error') {
 						toasts.error(`Download failed: ${job.error || 'Unknown error'}`);
 					}
 
 					eventSource.close();
-					downloadingIds = new Set([...downloadingIds].filter((id) => id !== book.id));
-					fetchingJobs = fetchingJobs.filter((j) => j.mamId !== book.id);
+					downloadingIds = new Set([...downloadingIds].filter((id) => id !== result.id));
+					fetchingJobs = fetchingJobs.filter((j) => j.torrentId !== result.id);
 
-					// Refresh sidebar and library after a short delay
+					// Refresh sidebar after a short delay
 					setTimeout(() => {
 						sidebarRef?.refresh();
-						libraryPanelRef?.refresh();
 					}, 2000);
 				}
 			};
 
 			eventSource.onerror = () => {
 				eventSource.close();
-				downloadingIds = new Set([...downloadingIds].filter((id) => id !== book.id));
-				fetchingJobs = fetchingJobs.filter((j) => j.mamId !== book.id);
+				downloadingIds = new Set([...downloadingIds].filter((id) => id !== result.id));
+				fetchingJobs = fetchingJobs.filter((j) => j.torrentId !== result.id);
 			};
 		} catch (e) {
 			const message = e instanceof Error ? e.message : 'Failed to start download';
 			toasts.error(message);
-			downloadingIds = new Set([...downloadingIds].filter((id) => id !== book.id));
-			fetchingJobs = fetchingJobs.filter((j) => j.mamId !== book.id);
+			downloadingIds = new Set([...downloadingIds].filter((id) => id !== result.id));
+			fetchingJobs = fetchingJobs.filter((j) => j.torrentId !== result.id);
 		}
 	}
 
-	async function handleAnnaDownload(book: AnnaSearchResult) {
-		if (annaDownloadingMd5s.has(book.md5)) {
-			toasts.warning('Already downloading this book');
-			return;
-		}
+	// Total active download count
+	const totalDownloadingCount = $derived(downloadingCount);
 
-		annaDownloadingMd5s = new Set([...annaDownloadingMd5s, book.md5]);
-
-		// Auto-switch to downloads tab on mobile
-		if (isMobile && mobileTab !== 'downloads') {
-			handleMobileTabChange('downloads');
-		}
-
-		try {
-			const response = await fetch('/api/anna/download', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ md5: book.md5, title: book.title, authors: book.authors })
-			});
-
-			const data = await response.json();
-
-			if (!response.ok) {
-				throw new Error(data.error || 'Failed to start download');
-			}
-
-			const jobId = data.jobId;
-			toasts.success(`Started downloading: ${book.title}`);
-
-			const eventSource = new EventSource(`/api/anna/progress/${jobId}`);
-
-			eventSource.onmessage = (event) => {
-				const payload = JSON.parse(event.data);
-
-				if (payload.type === 'progress') {
-					const job = payload as HttpDownloadJob;
-					// Update or insert the job in our local list
-					const existing = annaHttpJobs.findIndex((j) => j.id === job.id);
-					if (existing >= 0) {
-						annaHttpJobs = annaHttpJobs.map((j) => (j.id === job.id ? job : j));
-					} else {
-						annaHttpJobs = [...annaHttpJobs, job];
-					}
-				} else if (payload.type === 'done') {
-					const { status, error: jobError } = payload as { status: string; error?: string };
-					if (status === 'complete') {
-						toasts.success(`Download complete: ${book.title}`);
-						setTimeout(() => libraryPanelRef?.refresh(), 1000);
-					} else if (status === 'error') {
-						toasts.error(`Download failed: ${jobError || 'Unknown error'}`);
-					}
-
-					eventSource.close();
-					annaDownloadingMd5s = new Set([...annaDownloadingMd5s].filter((m) => m !== book.md5));
-					// Remove the job from the list after a short delay so the user sees 100%
-					setTimeout(() => {
-						annaHttpJobs = annaHttpJobs.filter((j) => j.md5 !== book.md5);
-					}, 3000);
-				}
-			};
-
-			eventSource.onerror = () => {
-				eventSource.close();
-				annaDownloadingMd5s = new Set([...annaDownloadingMd5s].filter((m) => m !== book.md5));
-				annaHttpJobs = annaHttpJobs.filter((j) => j.md5 !== book.md5);
-			};
-		} catch (e) {
-			const message = e instanceof Error ? e.message : 'Failed to start download';
-			toasts.error(message);
-			annaDownloadingMd5s = new Set([...annaDownloadingMd5s].filter((m) => m !== book.md5));
-		}
-	}
-
-	// Total active download count (MAM + Anna)
-	const totalDownloadingCount = $derived(
-		downloadingCount + annaHttpJobs.filter((j) => j.status === 'downloading').length
-	);
+	// Category options for tabs
+	const categories: SearchCategory[] = ['tv-episodes', 'tv-boxsets', 'movies', 'documentaries'];
 </script>
 
 <div class="flex h-full w-full">
@@ -360,28 +242,30 @@
 				<div class="animate-fade-in px-4 py-6 sm:px-6 sm:py-8">
 					<div class="mb-4 flex items-center justify-between gap-4 sm:mb-6">
 						<h1 class="text-2xl font-bold text-white sm:text-3xl md:text-4xl">Search</h1>
-						<div class="flex gap-2">
-							<button
-								type="button"
-								onclick={() => handleFieldChange('title')}
-								class="rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:px-4 sm:text-sm {searchField ===
-								'title'
-									? 'bg-white text-black'
-									: 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}"
-							>
-								Title
-							</button>
-							<button
-								type="button"
-								onclick={() => handleFieldChange('author')}
-								class="rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:px-4 sm:text-sm {searchField ===
-								'author'
-									? 'bg-white text-black'
-									: 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}"
-							>
-								Author
-							</button>
+						<!-- Desktop-only: downloads indicator -->
+						<div class="hidden md:block">
+							<DownloadsHeaderIndicator
+								onClick={openDownloadsModal}
+								downloadingCount={totalDownloadingCount}
+								{fetchingJobs}
+							/>
 						</div>
+					</div>
+
+					<!-- Category tabs -->
+					<div class="mb-4 flex gap-1.5 overflow-x-auto">
+						{#each categories as cat}
+							<button
+								type="button"
+								onclick={() => handleCategoryChange(cat)}
+								class="whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:px-4 sm:text-sm {searchCategory ===
+								cat
+									? 'bg-white text-black'
+									: 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}"
+							>
+								{CATEGORY_LABELS[cat]}
+							</button>
+						{/each}
 					</div>
 
 					<div class="relative">
@@ -426,48 +310,12 @@
 							onkeydown={(e) => {
 								if (e.key === 'Enter') handleSearch();
 							}}
-							placeholder={searchField === 'title'
-								? 'Search by book title...'
-								: 'Search by author name...'}
+							placeholder="Search {CATEGORY_LABELS[searchCategory].toLowerCase()}..."
 							class="w-full rounded-full border-0 bg-neutral-800 py-3 pl-12 text-white placeholder-neutral-500 ring-1 ring-neutral-700 transition-all focus:bg-neutral-750 focus:ring-2 focus:ring-blue-500 focus:outline-none {searchQuery
-								? 'pr-24'
-								: 'pr-14'}"
+								? 'pr-10'
+								: 'pr-4'}"
 							disabled={loading}
 						/>
-
-						<!-- Source selector — right side of input -->
-						<div
-							class="absolute inset-y-0 right-0 flex items-center {searchQuery ? 'pr-9' : 'pr-3'}"
-						>
-							<div class="flex items-center rounded-full bg-neutral-700/60 px-2 py-1">
-								<select
-									value={searchSource}
-									onchange={(e) =>
-										handleSourceChange(
-											(e.currentTarget as HTMLSelectElement).value as 'mam' | 'anna'
-										)}
-									class="cursor-pointer appearance-none border-0 bg-transparent bg-none text-xs font-medium text-neutral-300 outline-none"
-									aria-label="Search source"
-								>
-									<option value="mam">MAM</option>
-									<option value="anna">Anna's</option>
-								</select>
-								<!-- Chevron icon -->
-								<svg
-									class="pointer-events-none ml-1 h-3 w-3 flex-shrink-0 text-neutral-400"
-									fill="none"
-									stroke="currentColor"
-									viewBox="0 0 24 24"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="2.5"
-										d="M19 9l-7 7-7-7"
-									/>
-								</svg>
-							</div>
-						</div>
 
 						<!-- Clear button -->
 						{#if searchQuery}
@@ -531,54 +379,12 @@
 							<p class="mt-4 text-neutral-500">Searching...</p>
 						</div>
 					{:else if hasSearched}
-						{#if searchSource === 'anna'}
-							<!-- Anna's Archive results -->
-							{#if annaBooks.length === 0}
-								<div class="flex flex-col items-center justify-center py-16 text-center">
-									<svg
-										class="mb-4 h-16 w-16 text-neutral-700"
-										fill="none"
-										stroke="currentColor"
-										viewBox="0 0 24 24"
-									>
-										<path
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											stroke-width="1.5"
-											d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-										/>
-									</svg>
-									<p class="text-lg font-medium text-neutral-400">No results found</p>
-									<p class="mt-1 text-sm text-neutral-500">Try a different search term</p>
-								</div>
-							{:else}
-								<div class="flex flex-col gap-4">
-									<div class="animate-fade-in flex items-center justify-between">
-										<h2 class="text-lg font-semibold text-white">Results</h2>
-										<span class="text-sm text-neutral-500">{annaBooks.length} results</span>
-									</div>
-									<div class="flex flex-col gap-1">
-										{#each annaBooks as book (book.md5)}
-											<div class="animate-fade-in">
-												<AnnaBookCard
-													{book}
-													onDownload={handleAnnaDownload}
-													downloading={annaDownloadingMd5s.has(book.md5)}
-												/>
-											</div>
-										{/each}
-									</div>
-								</div>
-							{/if}
-						{:else}
-							<!-- MAM results -->
-							<ResultsGrid
-								{books}
-								total={totalResults}
-								onDownload={handleDownload}
-								{downloadingIds}
-							/>
-						{/if}
+						<ResultsGrid
+							{results}
+							total={totalResults}
+							onDownload={handleDownload}
+							{downloadingIds}
+						/>
 					{:else}
 						<div class="flex flex-col items-center justify-center py-16 text-center">
 							<svg
@@ -591,26 +397,15 @@
 									stroke-linecap="round"
 									stroke-linejoin="round"
 									stroke-width="1"
-									d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+									d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
 								/>
 							</svg>
-							<p class="text-lg font-medium text-neutral-400">Find your books</p>
-							<p class="mt-1 text-sm text-neutral-500">Search by title or author</p>
+							<p class="text-lg font-medium text-neutral-400">Find your media</p>
+							<p class="mt-1 text-sm text-neutral-500">Search for TV shows, movies, and more</p>
 						</div>
 					{/if}
 				</div>
 			</div>
-		{/if}
-
-		<!-- Mobile-only: Library tab -->
-		{#if isMobile && mobileTab === 'library'}
-			{#key mobileTab}
-				<div class="absolute inset-0 flex flex-col bg-neutral-900 {tabSlideClass}">
-					<div class="flex-1 overflow-hidden p-4 pb-20">
-						<LibraryPanel bind:this={libraryPanelRef} forcedTab="library" hideTabBar={true} />
-					</div>
-				</div>
-			{/key}
 		{/if}
 
 		<!-- Mobile-only: Downloads tab -->
@@ -623,7 +418,6 @@
 					<div class="flex-1 overflow-hidden px-4 pb-20">
 						<TorrentSidebar
 							{fetchingJobs}
-							{annaHttpJobs}
 							onCountChange={(count) => (downloadingCount = count)}
 						/>
 					</div>
@@ -632,19 +426,20 @@
 		{/if}
 	</div>
 
-	<!-- Side Panel (right side on desktop, hidden on mobile) - Library only -->
+	<!-- Side Panel (right side on desktop, hidden on mobile) — Downloads -->
 	<div class="hidden flex-col md:flex md:w-1/3">
-		<LibraryPanel bind:this={libraryPanelRef} showLargeTitle={true}>
-			{#snippet titleRight()}
-				<div class="flex items-center gap-3">
-					<DownloadsHeaderIndicator
-						onClick={openDownloadsModal}
-						downloadingCount={totalDownloadingCount}
-						{fetchingJobs}
-					/>
-				</div>
-			{/snippet}
-		</LibraryPanel>
+		<div class="flex h-full flex-col">
+			<div class="flex items-center justify-between border-b border-neutral-800 px-5 py-4">
+				<h2 class="text-lg font-bold text-white">Downloads</h2>
+			</div>
+			<div class="flex-1 overflow-hidden">
+				<TorrentSidebar
+					bind:this={sidebarRef}
+					{fetchingJobs}
+					onCountChange={(count) => (downloadingCount = count)}
+				/>
+			</div>
+		</div>
 	</div>
 </div>
 
@@ -662,6 +457,5 @@
 	isOpen={isDownloadsModalOpen}
 	onClose={closeDownloadsModal}
 	{fetchingJobs}
-	{annaHttpJobs}
 	onCountChange={(count) => (downloadingCount = count)}
 />

@@ -1,17 +1,17 @@
 <script lang="ts">
-	import type { BookResult } from '$lib/types';
-	import BookCard from './BookCard.svelte';
+	import type { SearchResult } from '$lib/types';
+	import MediaCard from './MediaCard.svelte';
 
 	interface Props {
-		books: BookResult[];
+		results: SearchResult[];
 		total: number;
-		onDownload?: (book: BookResult) => void;
+		onDownload?: (result: SearchResult) => void;
 		downloadingIds?: Set<number>;
 	}
 
-	let { books = [], total = 0, onDownload, downloadingIds = new Set() }: Props = $props();
+	let { results = [], total = 0, onDownload, downloadingIds = new Set() }: Props = $props();
 
-	const isEmpty = $derived(books.length === 0);
+	const isEmpty = $derived(results.length === 0);
 
 	// Stagger delay per item, capped at 15 items to avoid too long delays
 	function getStaggerDelay(index: number): string {
@@ -44,15 +44,15 @@
 		<div class="flex animate-fade-in items-center justify-between">
 			<h2 class="text-lg font-semibold text-white">Results</h2>
 			<span class="text-sm text-neutral-500"
-				>{books.length}{total > books.length ? ` of ${total}` : ''} results</span
+				>{results.length}{total > results.length ? ` of ${total}` : ''} results</span
 			>
 		</div>
 
 		<!-- Results list -->
 		<div class="flex flex-col gap-1">
-			{#each books as book, i (book.id)}
+			{#each results as result, i (result.id)}
 				<div class="animate-fade-in" style="animation-delay: {getStaggerDelay(i)}">
-					<BookCard {book} {onDownload} downloading={downloadingIds.has(book.id)} />
+					<MediaCard {result} {onDownload} downloading={downloadingIds.has(result.id)} />
 				</div>
 			{/each}
 		</div>

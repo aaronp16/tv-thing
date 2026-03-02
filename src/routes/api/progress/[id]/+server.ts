@@ -27,7 +27,9 @@ export const GET: RequestHandler = async ({ params }) => {
 			const encoder = new TextEncoder();
 
 			// Send initial connection message
-			controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', jobId })}\n\n`));
+			controller.enqueue(
+				encoder.encode(`data: ${JSON.stringify({ type: 'connected', jobId })}\n\n`)
+			);
 
 			// Subscribe to progress updates
 			const unsubscribe = subscribeToProgress(jobId, (jobUpdate) => {
@@ -37,7 +39,9 @@ export const GET: RequestHandler = async ({ params }) => {
 
 					// Close stream when download is complete or errored
 					if (jobUpdate.status === 'complete' || jobUpdate.status === 'error') {
-						controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+						controller.enqueue(
+							encoder.encode(`data: ${JSON.stringify({ type: 'done', status: jobUpdate.status, error: jobUpdate.error })}\n\n`)
+						);
 						unsubscribe();
 						controller.close();
 					}
@@ -51,14 +55,14 @@ export const GET: RequestHandler = async ({ params }) => {
 			return () => {
 				unsubscribe();
 			};
-		}
+		},
 	});
 
 	return new Response(stream, {
 		headers: {
 			'Content-Type': 'text/event-stream',
 			'Cache-Control': 'no-cache',
-			Connection: 'keep-alive'
-		}
+			Connection: 'keep-alive',
+		},
 	});
 };

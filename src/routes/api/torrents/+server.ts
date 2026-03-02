@@ -14,13 +14,16 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getTorrents, mapState } from '$lib/server/qbittorrent-client';
 import { getActiveJobs } from '$lib/server/downloader';
-import { env } from '$lib/server/env';
 import type { TorrentInfo } from '$lib/types';
 
 export const GET: RequestHandler = async () => {
 	try {
-		// Get torrents from qBittorrent (filtered by our category)
-		const qbTorrents = await getTorrents({ category: env.QB_CATEGORY });
+		// Get torrents from qBittorrent (both tv and movies categories)
+		const [tvTorrents, movieTorrents] = await Promise.all([
+			getTorrents({ category: 'tv' }),
+			getTorrents({ category: 'movies' })
+		]);
+		const qbTorrents = [...tvTorrents, ...movieTorrents];
 
 		// Map to our TorrentInfo format
 		const torrents: TorrentInfo[] = qbTorrents.map((t) => ({
@@ -35,7 +38,7 @@ export const GET: RequestHandler = async () => {
 			size: t.size,
 			ratio: t.ratio,
 			status: mapState(t.state),
-			files: [], // qBittorrent requires separate API call for files
+			files: [],
 			addedAt: new Date(t.added_on * 1000).toISOString()
 		}));
 

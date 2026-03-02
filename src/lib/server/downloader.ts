@@ -1,14 +1,15 @@
 /**
  * Download orchestrator
  *
- * Coordinates fetching .torrent files from MAM and adding them to qBittorrent.
+ * Coordinates fetching .torrent files from TorrentLeech and adding them to qBittorrent.
  * Tracks download jobs and provides progress updates via subscriptions.
+ * Copies completed downloads to Jellyfin media library.
  */
 
-import { downloadTorrentFile } from './mam-client.js';
+import { downloadTorrentFile } from './tl-client.js';
 import { addTorrent, getTorrent, mapState } from './qbittorrent-client.js';
-import { copyBookToLibrary } from './library.js';
-import type { DownloadJob } from '$lib/types.js';
+import { copyToLibrary } from './media-library.js';
+import type { DownloadJob, MediaType } from '$lib/types.js';
 
 /** Active download jobs */
 const activeJobs = new Map<string, DownloadJob>();
@@ -36,19 +37,27 @@ function notifyProgress(jobId: string, job: DownloadJob): void {
 }
 
 /**
- * Start a download job for a book
+ * Start a download job
  *
- * @param mamId - MyAnonamouse torrent ID
- * @param title - Book title (for display)
+ * @param torrentId - TorrentLeech torrent fid
+ * @param filename - TorrentLeech torrent filename (needed for download URL)
+ * @param title - Display title
+ * @param mediaType - 'tv' or 'movie'
  * @returns Job ID for tracking progress
  */
-export async function startDownload(mamId: number, title: string): Promise<string> {
+export async function startDownload(
+	torrentId: number,
+	filename: string,
+	title: string,
+	mediaType: MediaType
+): Promise<string> {
 	const jobId = generateJobId();
 
 	const job: DownloadJob = {
 		id: jobId,
-		mamId,
+		torrentId,
 		title,
+		mediaType,
 		status: 'fetching',
 		progress: 0,
 		downloadSpeed: 0,
@@ -62,16 +71,17 @@ export async function startDownload(mamId: number, title: string): Promise<strin
 	// Start download in background
 	(async () => {
 		try {
-			// Step 1: Fetch .torrent file from MAM
-			console.log(`[downloader] Fetching torrent for ${mamId}: ${title}`);
-			const torrentBuffer = await downloadTorrentFile(mamId);
+			// Step 1: Fetch .torrent file from TorrentLeech
+			console.log(`[downloader] Fetching torrent for ${torrentId}: ${title}`);
+			const torrentBuffer = await downloadTorrentFile(torrentId, filename);
 
 			// Step 2: Add to qBittorrent
 			job.status = 'downloading';
 			notifyProgress(jobId, job);
 
 			console.log(`[downloader] Adding torrent to qBittorrent: ${title}`);
-			const hash = await addTorrent(torrentBuffer);
+			const category = mediaType === 'tv' ? 'tv' : 'movies';
+			const hash = await addTorrent(torrentBuffer, { category });
 			job.infoHash = hash;
 
 			// Step 3: Set up progress polling
@@ -91,18 +101,25 @@ export async function startDownload(mamId: number, title: string): Promise<strin
 					const status = mapState(torrent.state);
 
 					if (status === 'seeding' || torrent.progress >= 1) {
-						job.status = 'complete';
+						// Step 4: Copy to Jellyfin library
+						job.status = 'copying';
 						job.progress = 1;
 						notifyProgress(jobId, job);
 						clearInterval(pollInterval);
-						console.log(`[downloader] Download complete: ${title}`);
+						console.log(`[downloader] Download complete, copying to library: ${title}`);
 
-						// Copy the best ebook file to the library directory
 						if (torrent.content_path) {
-							copyBookToLibrary(torrent.content_path).catch((err) =>
-								console.error(`[downloader] Copy to library failed:`, err)
-							);
+							try {
+								await copyToLibrary(torrent.content_path, mediaType);
+								console.log(`[downloader] Copied to library: ${title}`);
+							} catch (err) {
+								console.error(`[downloader] Copy to library failed:`, err);
+								// Don't fail the whole job if copy fails — torrent is still seeding
+							}
 						}
+
+						job.status = 'complete';
+						notifyProgress(jobId, job);
 
 						// Clean up job after a delay (keep for SSE to report completion)
 						setTimeout(() => {
@@ -120,8 +137,7 @@ export async function startDownload(mamId: number, title: string): Promise<strin
 				} catch (err) {
 					console.error(`[downloader] Error polling torrent status:`, err);
 				}
-			}, 2000); // Poll every 2 seconds (qBittorrent is remote, don't poll too fast)
-
+			}, 2000);
 		} catch (err) {
 			job.status = 'error';
 			job.error = err instanceof Error ? err.message : 'Download failed';

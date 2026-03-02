@@ -8,20 +8,22 @@
 import { env as svelteEnv } from '$env/dynamic/private';
 
 export const env = {
-	/** MyAnonamouse session cookie */
-	MAM_ID: svelteEnv.MAM_ID || '',
-	/** MyAnonamouse user ID */
-	MAM_UID: svelteEnv.MAM_UID || '',
-	/** Book download directory (for library scanning and Calibre-Web library in prod) */
-	BOOKS_DIR: svelteEnv.BOOKS_DIR || './books',
-	/** qBittorrent WebUI URL (e.g., http://localhost:8080) */
+	/** TorrentLeech username */
+	TL_USERNAME: svelteEnv.TL_USERNAME || '',
+	/** TorrentLeech password */
+	TL_PASSWORD: svelteEnv.TL_PASSWORD || '',
+	/** TorrentLeech 2FA token (optional, for accounts with Alt 2FA enabled) */
+	TL_2FA_TOKEN: svelteEnv.TL_2FA_TOKEN || '',
+	/** qBittorrent WebUI URL */
 	QB_URL: svelteEnv.QB_URL || 'http://localhost:8080',
 	/** qBittorrent WebUI username */
 	QB_USERNAME: svelteEnv.QB_USERNAME || 'admin',
 	/** qBittorrent WebUI password */
 	QB_PASSWORD: svelteEnv.QB_PASSWORD || '',
-	/** Category to use for book downloads in qBittorrent */
-	QB_CATEGORY: svelteEnv.QB_CATEGORY || 'books',
 	/** Save path in qBittorrent (if different from default) */
-	QB_SAVE_PATH: svelteEnv.QB_SAVE_PATH || ''
+	QB_SAVE_PATH: svelteEnv.QB_SAVE_PATH || '',
+	/** Base Jellyfin/media directory (contains tv/ and movies/ subdirs) */
+	MEDIA_DIR: svelteEnv.MEDIA_DIR || './media',
+	/** Where qBittorrent stores completed downloads (for copy-from path mapping) */
+	TORRENT_DOWNLOAD_DIR: svelteEnv.TORRENT_DOWNLOAD_DIR || '/torrents'
 };

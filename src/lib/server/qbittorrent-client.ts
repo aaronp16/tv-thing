@@ -122,10 +122,7 @@ async function login(): Promise<void> {
 /**
  * Make an authenticated API request
  */
-async function apiRequest(
-	endpoint: string,
-	options: RequestInit = {}
-): Promise<Response> {
+async function apiRequest(endpoint: string, options: RequestInit = {}): Promise<Response> {
 	// Login if we don't have a session
 	if (!sessionCookie) {
 		await login();
@@ -200,51 +197,62 @@ export async function addTorrent(
 ): Promise<string> {
 	// Build the multipart body manually to avoid Node.js FormData/undici issues
 	// with binary data that can corrupt field values.
-	const boundary = `----book-thing-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+	const boundary = `----tv-thing-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 	const CRLF = '\r\n';
 
 	const parts: Buffer[] = [];
 
 	// Part 1: the .torrent file
-	parts.push(Buffer.from(
-		`--${boundary}${CRLF}` +
-		`Content-Disposition: form-data; name="torrents"; filename="torrent.torrent"${CRLF}` +
-		`Content-Type: application/x-bittorrent${CRLF}` +
-		CRLF
-	));
+	parts.push(
+		Buffer.from(
+			`--${boundary}${CRLF}` +
+				`Content-Disposition: form-data; name="torrents"; filename="torrent.torrent"${CRLF}` +
+				`Content-Type: application/x-bittorrent${CRLF}` +
+				CRLF
+		)
+	);
 	parts.push(torrentBuffer);
 	parts.push(Buffer.from(CRLF));
 
 	// Part 2: category
-	const category = options.category || env.QB_CATEGORY;
+	const category = options.category;
 	if (category) {
-		parts.push(Buffer.from(
-			`--${boundary}${CRLF}` +
-			`Content-Disposition: form-data; name="category"${CRLF}` +
-			CRLF +
-			category + CRLF
-		));
+		parts.push(
+			Buffer.from(
+				`--${boundary}${CRLF}` +
+					`Content-Disposition: form-data; name="category"${CRLF}` +
+					CRLF +
+					category +
+					CRLF
+			)
+		);
 	}
 
 	// Part 3: save path
 	const savePath = options.savePath || env.QB_SAVE_PATH;
 	if (savePath) {
-		parts.push(Buffer.from(
-			`--${boundary}${CRLF}` +
-			`Content-Disposition: form-data; name="savepath"${CRLF}` +
-			CRLF +
-			savePath + CRLF
-		));
+		parts.push(
+			Buffer.from(
+				`--${boundary}${CRLF}` +
+					`Content-Disposition: form-data; name="savepath"${CRLF}` +
+					CRLF +
+					savePath +
+					CRLF
+			)
+		);
 	}
 
 	// Part 4: paused
 	if (options.paused) {
-		parts.push(Buffer.from(
-			`--${boundary}${CRLF}` +
-			`Content-Disposition: form-data; name="paused"${CRLF}` +
-			CRLF +
-			'true' + CRLF
-		));
+		parts.push(
+			Buffer.from(
+				`--${boundary}${CRLF}` +
+					`Content-Disposition: form-data; name="paused"${CRLF}` +
+					CRLF +
+					'true' +
+					CRLF
+			)
+		);
 	}
 
 	// Closing boundary
@@ -443,9 +451,9 @@ export function mapState(state: string): 'downloading' | 'seeding' | 'paused' | 
 export async function initQBittorrent(): Promise<void> {
 	try {
 		await login();
-		if (env.QB_CATEGORY) {
-			await ensureCategory(env.QB_CATEGORY, env.QB_SAVE_PATH || undefined);
-		}
+		// Ensure both media categories exist
+		await ensureCategory('tv', env.QB_SAVE_PATH || undefined);
+		await ensureCategory('movies', env.QB_SAVE_PATH || undefined);
 		console.log('[qbittorrent] Client initialized');
 	} catch (err) {
 		console.error('[qbittorrent] Failed to initialize:', err);

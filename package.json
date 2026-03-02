@@ -1,5 +1,5 @@
 {
-	"name": "book-thing",
+	"name": "tv-thing",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
@@ -38,7 +38,6 @@
 		"vite": "^7.3.1"
 	},
 	"dependencies": {
-		"@sveltejs/adapter-node": "^5.5.3",
-		"fflate": "^0.8.2"
+		"@sveltejs/adapter-node": "^5.5.3"
 	}
 }

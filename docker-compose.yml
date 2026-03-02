@@ -1,21 +1,20 @@
 services:
-  book-thing:
+  tv-thing:
     build: .
-    container_name: book-thing
+    container_name: tv-thing
     restart: unless-stopped
     ports:
       - '13338:3000'
     environment:
-      - MAM_ID=${MAM_ID}
-      - MAM_UID=${MAM_UID}
-      - BOOKS_DIR=/books
+      - TL_USERNAME=${TL_USERNAME}
+      - TL_PASSWORD=${TL_PASSWORD}
+      - TL_2FA_TOKEN=${TL_2FA_TOKEN:-}
       - QB_URL=${QB_URL}
       - QB_USERNAME=${QB_USERNAME}
       - QB_PASSWORD=${QB_PASSWORD}
-      - QB_CATEGORY=${QB_CATEGORY:-books}
-      - CALIBRE_WEB_URL=${CALIBRE_WEB_URL:-http://calibre-web:8083}
-      - CALIBRE_WEB_USERNAME=${CALIBRE_WEB_USERNAME}
-      - CALIBRE_WEB_PASSWORD=${CALIBRE_WEB_PASSWORD}
+      - QB_SAVE_PATH=${QB_SAVE_PATH:-}
+      - MEDIA_DIR=/data
+      - TORRENT_DOWNLOAD_DIR=/torrents
     volumes:
-      - /home/aaron/data/media/books:/books
-      - /home/aaron/homelab/data/torrents/books:/torrents:ro
+      - /home/aaron/homelab/data:/data
+      - /home/aaron/homelab/data/torrents:/torrents:ro

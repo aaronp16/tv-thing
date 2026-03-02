@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { TorrentInfo, DownloadJob } from '$lib/types';
+	import type { DownloadJob } from '$lib/types';
 
 	interface Props {
 		onClick: () => void;

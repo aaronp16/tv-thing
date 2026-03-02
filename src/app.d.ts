@@ -11,10 +11,15 @@ declare global {
 
 	namespace NodeJS {
 		interface ProcessEnv {
-			MAM_ID?: string;
-			MAM_UID?: string;
-			BOOKS_DIR?: string;
-			TORRENT_PORT?: string;
+			TL_USERNAME?: string;
+			TL_PASSWORD?: string;
+			TL_2FA_TOKEN?: string;
+			QB_URL?: string;
+			QB_USERNAME?: string;
+			QB_PASSWORD?: string;
+			QB_SAVE_PATH?: string;
+			MEDIA_DIR?: string;
+			TORRENT_DOWNLOAD_DIR?: string;
 		}
 	}
 }
