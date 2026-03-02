@@ -8,13 +8,9 @@ services:
     environment:
       - TL_USERNAME=${TL_USERNAME}
       - TL_PASSWORD=${TL_PASSWORD}
-      - TL_2FA_TOKEN=${TL_2FA_TOKEN:-}
       - QB_URL=${QB_URL}
       - QB_USERNAME=${QB_USERNAME}
       - QB_PASSWORD=${QB_PASSWORD}
-      - QB_SAVE_PATH=${QB_SAVE_PATH:-}
-      - MEDIA_DIR=/data
-      - TORRENT_DOWNLOAD_DIR=/torrents
     volumes:
-      - /home/aaron/homelab/data:/data
+      - /home/aaron/homelab/data/media:/media
       - /home/aaron/homelab/data/torrents:/torrents:ro
