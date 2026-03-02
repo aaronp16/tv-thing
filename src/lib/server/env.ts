@@ -23,7 +23,7 @@ export const env = {
 	/** Save path in qBittorrent (if different from default) */
 	QB_SAVE_PATH: svelteEnv.QB_SAVE_PATH || '',
 	/** Base Jellyfin/media directory (contains tv/ and movies/ subdirs) */
-	MEDIA_DIR: svelteEnv.MEDIA_DIR || './media',
+	MEDIA_DIR: svelteEnv.MEDIA_DIR || '/media',
 	/** Where qBittorrent stores completed downloads (for copy-from path mapping) */
 	TORRENT_DOWNLOAD_DIR: svelteEnv.TORRENT_DOWNLOAD_DIR || '/torrents'
 };

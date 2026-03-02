@@ -110,7 +110,9 @@ export async function startDownload(
 
 						if (torrent.content_path) {
 							try {
-								await copyToLibrary(torrent.content_path, mediaType);
+								// qBittorrent sees /data/torrents, tv-thing mounts the same dir at /torrents
+								const localPath = torrent.content_path.replace('/data/torrents', '/torrents');
+								await copyToLibrary(localPath, mediaType);
 								console.log(`[downloader] Copied to library: ${title}`);
 							} catch (err) {
 								console.error(`[downloader] Copy to library failed:`, err);
