@@ -1,13 +1,14 @@
 /**
- * GET /api/search?q=breaking+bad&category=tv-episodes&sort=seeders&order=desc
+ * GET /api/search?q=breaking+bad&category=tv-episodes&sort=seeders&order=desc&imdbId=tt0903747
  *
  * Search TorrentLeech for TV shows, movies, etc.
  *
  * Query params:
- *   q        - Search query (required)
+ *   q        - Search query (required unless imdbId is provided)
  *   category - 'tv-episodes' | 'tv-boxsets' | 'movies' | 'documentaries' (default: 'tv-episodes')
  *   sort     - 'added' | 'seeders' | 'size' | 'nameSort' (default: 'seeders')
  *   order    - 'desc' | 'asc' (default: 'desc')
+ *   imdbId   - Optional IMDB ID to filter by (e.g., 'tt1234567')
  */
 
 import { json } from '@sveltejs/kit';
@@ -20,13 +21,14 @@ const VALID_SORTS: SortBy[] = ['added', 'seeders', 'size', 'nameSort'];
 const VALID_ORDERS: SortOrder[] = ['desc', 'asc'];
 
 export const GET: RequestHandler = async ({ url }) => {
-	const query = url.searchParams.get('q');
+	const query = url.searchParams.get('q') || '';
 	const category = (url.searchParams.get('category') || 'tv-episodes') as SearchCategory;
 	const sort = (url.searchParams.get('sort') || 'seeders') as SortBy;
 	const order = (url.searchParams.get('order') || 'desc') as SortOrder;
+	const imdbId = url.searchParams.get('imdbId') || undefined;
 
-	if (!query) {
-		return json({ error: 'Missing query parameter "q"' }, { status: 400 });
+	if (!query && !imdbId) {
+		return json({ error: 'Missing query parameter "q" or "imdbId"' }, { status: 400 });
 	}
 
 	if (!VALID_CATEGORIES.includes(category)) {
@@ -49,7 +51,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	try {
 		const categoryIds = CATEGORY_MAP[category];
-		const result = await search(query, categoryIds, sort, order);
+		const result = await search(query, categoryIds, sort, order, imdbId);
 		return json(result);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Unknown error';

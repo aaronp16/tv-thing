@@ -195,12 +195,14 @@ function parseTLEntry(entry: TLEntry): SearchResult {
  * @param categoryIds - Comma-separated TL category IDs to filter by
  * @param sortBy - Sort field
  * @param sortOrder - Sort direction
+ * @param imdbId - Optional IMDB ID to filter by (e.g., "tt1234567")
  */
 export async function search(
 	query: string,
 	categoryIds: number[],
 	sortBy: SortBy = 'seeders',
-	sortOrder: SortOrder = 'desc'
+	sortOrder: SortOrder = 'desc',
+	imdbId?: string
 ): Promise<{ results: SearchResult[]; total: number }> {
 	// Build the URL path segments
 	const parts: string[] = ['/torrents/browse/list'];
@@ -211,6 +213,10 @@ export async function search(
 
 	if (query.trim()) {
 		parts.push(`query/${encodeURIComponent(query.trim())}`);
+	}
+
+	if (imdbId?.trim()) {
+		parts.push(`imdbID/${encodeURIComponent(imdbId.trim())}`);
 	}
 
 	parts.push(`orderby/${sortBy}`);

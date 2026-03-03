@@ -11,6 +11,10 @@ services:
       - QB_URL=${QB_URL}
       - QB_USERNAME=${QB_USERNAME}
       - QB_PASSWORD=${QB_PASSWORD}
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - TMDB_REGION=${TMDB_REGION:-GB}
+      - JELLYFIN_URL=${JELLYFIN_URL}
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
     volumes:
       - /home/aaron/homelab/data/media:/media
       - /home/aaron/homelab/data/torrents:/torrents:ro

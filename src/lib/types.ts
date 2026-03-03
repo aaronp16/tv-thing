@@ -24,7 +24,7 @@ export const TL_CATEGORIES = {
 	MOVIES_BOXSETS: 15,
 	MOVIES_FOREIGN: 36,
 	// Other
-	DOCUMENTARIES: 29,
+	DOCUMENTARIES: 29
 } as const;
 
 /** Search category filter the user selects */
@@ -37,7 +37,7 @@ export const CATEGORY_MAP: Record<SearchCategory, number[]> = {
 		TL_CATEGORIES.TV_EPISODES_HD,
 		TL_CATEGORIES.TV_FOREIGN,
 		TL_CATEGORIES.TV_ANIME,
-		TL_CATEGORIES.TV_CARTOONS,
+		TL_CATEGORIES.TV_CARTOONS
 	],
 	'tv-boxsets': [TL_CATEGORIES.TV_BOXSETS],
 	movies: [
@@ -51,9 +51,9 @@ export const CATEGORY_MAP: Record<SearchCategory, number[]> = {
 		TL_CATEGORIES.MOVIES_BLURAY,
 		TL_CATEGORIES.MOVIES_4K,
 		TL_CATEGORIES.MOVIES_BOXSETS,
-		TL_CATEGORIES.MOVIES_FOREIGN,
+		TL_CATEGORIES.MOVIES_FOREIGN
 	],
-	documentaries: [TL_CATEGORIES.DOCUMENTARIES],
+	documentaries: [TL_CATEGORIES.DOCUMENTARIES]
 };
 
 /** Media type for library organization */
@@ -69,7 +69,7 @@ export const CATEGORY_LABELS: Record<SearchCategory, string> = {
 	'tv-episodes': 'TV Episodes',
 	'tv-boxsets': 'TV Boxsets',
 	movies: 'Movies',
-	documentaries: 'Documentaries',
+	documentaries: 'Documentaries'
 };
 
 /** Raw entry from TorrentLeech API */
@@ -155,4 +155,256 @@ export interface DownloadJob {
 	uploadSpeed: number;
 	numPeers: number;
 	error?: string;
+}
+
+// ─── TMDB Types ───────────────────────────────────────────────────────────────
+
+/** TMDB image CDN base URL */
+export const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
+
+/** Helper to build TMDB image URLs */
+export function tmdbImage(path: string | null | undefined, size: string = 'w500'): string | null {
+	if (!path) return null;
+	return `${TMDB_IMAGE_BASE}/${size}${path}`;
+}
+
+/** TMDB multi-search result item */
+export interface TMDBSearchResult {
+	id: number;
+	media_type: 'movie' | 'tv' | 'person';
+	title?: string; // movies
+	name?: string; // tv shows / people
+	original_title?: string;
+	original_name?: string;
+	overview?: string;
+	poster_path: string | null;
+	backdrop_path: string | null;
+	profile_path?: string | null; // people
+	vote_average: number;
+	vote_count: number;
+	release_date?: string; // movies
+	first_air_date?: string; // tv
+	genre_ids: number[];
+	popularity: number;
+	adult?: boolean;
+	original_language?: string;
+}
+
+/** TMDB genre */
+export interface TMDBGenre {
+	id: number;
+	name: string;
+}
+
+/** TMDB cast member */
+export interface TMDBCastMember {
+	id: number;
+	name: string;
+	character: string;
+	profile_path: string | null;
+	order: number;
+	known_for_department?: string;
+}
+
+/** TMDB crew member */
+export interface TMDBCrewMember {
+	id: number;
+	name: string;
+	job: string;
+	department: string;
+	profile_path: string | null;
+}
+
+/** TMDB watch provider */
+export interface TMDBWatchProvider {
+	provider_id: number;
+	provider_name: string;
+	logo_path: string;
+	display_priority: number;
+}
+
+/** TMDB watch provider data for a region */
+export interface TMDBWatchProviderRegion {
+	link?: string;
+	flatrate?: TMDBWatchProvider[];
+	rent?: TMDBWatchProvider[];
+	buy?: TMDBWatchProvider[];
+	ads?: TMDBWatchProvider[];
+}
+
+/** TMDB season summary (from TV details) */
+export interface TMDBSeasonSummary {
+	id: number;
+	season_number: number;
+	name: string;
+	overview: string;
+	poster_path: string | null;
+	air_date: string | null;
+	episode_count: number;
+	vote_average: number;
+}
+
+/** TMDB episode */
+export interface TMDBEpisode {
+	id: number;
+	episode_number: number;
+	season_number: number;
+	name: string;
+	overview: string;
+	air_date: string | null;
+	still_path: string | null;
+	runtime: number | null;
+	vote_average: number;
+	vote_count: number;
+}
+
+/** TMDB season detail (full episode list) */
+export interface TMDBSeasonDetail {
+	id: number;
+	season_number: number;
+	name: string;
+	overview: string;
+	poster_path: string | null;
+	air_date: string | null;
+	episodes: TMDBEpisode[];
+}
+
+/** TMDB production company */
+export interface TMDBProductionCompany {
+	id: number;
+	name: string;
+	logo_path: string | null;
+	origin_country: string;
+}
+
+/** TMDB network (for TV) */
+export interface TMDBNetwork {
+	id: number;
+	name: string;
+	logo_path: string | null;
+	origin_country: string;
+}
+
+/** TMDB content rating */
+export interface TMDBContentRating {
+	iso_3166_1: string;
+	rating: string;
+}
+
+/** Full TMDB movie detail (with appended data) */
+export interface TMDBMovieDetail {
+	id: number;
+	title: string;
+	original_title: string;
+	overview: string;
+	tagline: string;
+	poster_path: string | null;
+	backdrop_path: string | null;
+	release_date: string;
+	runtime: number;
+	vote_average: number;
+	vote_count: number;
+	genres: TMDBGenre[];
+	status: string;
+	budget: number;
+	revenue: number;
+	imdb_id: string | null;
+	original_language: string;
+	production_companies: TMDBProductionCompany[];
+	spoken_languages: { english_name: string; iso_639_1: string; name: string }[];
+	// Appended data
+	credits?: {
+		cast: TMDBCastMember[];
+		crew: TMDBCrewMember[];
+	};
+	external_ids?: {
+		imdb_id: string | null;
+		facebook_id: string | null;
+		instagram_id: string | null;
+		twitter_id: string | null;
+	};
+	'watch/providers'?: {
+		results: Record<string, TMDBWatchProviderRegion>;
+	};
+}
+
+/** Full TMDB TV series detail (with appended data) */
+export interface TMDBTvDetail {
+	id: number;
+	name: string;
+	original_name: string;
+	overview: string;
+	tagline: string;
+	poster_path: string | null;
+	backdrop_path: string | null;
+	first_air_date: string;
+	last_air_date: string;
+	number_of_seasons: number;
+	number_of_episodes: number;
+	episode_run_time: number[];
+	vote_average: number;
+	vote_count: number;
+	genres: TMDBGenre[];
+	status: string;
+	type: string;
+	networks: TMDBNetwork[];
+	created_by: { id: number; name: string; profile_path: string | null }[];
+	seasons: TMDBSeasonSummary[];
+	original_language: string;
+	production_companies: TMDBProductionCompany[];
+	spoken_languages: { english_name: string; iso_639_1: string; name: string }[];
+	next_episode_to_air: TMDBEpisode | null;
+	last_episode_to_air: TMDBEpisode | null;
+	// Appended data
+	credits?: {
+		cast: TMDBCastMember[];
+		crew: TMDBCrewMember[];
+	};
+	external_ids?: {
+		imdb_id: string | null;
+		tvdb_id: number | null;
+		facebook_id: string | null;
+		instagram_id: string | null;
+		twitter_id: string | null;
+	};
+	'watch/providers'?: {
+		results: Record<string, TMDBWatchProviderRegion>;
+	};
+	content_ratings?: {
+		results: TMDBContentRating[];
+	};
+}
+
+/** Display name for a TMDB search result */
+export function tmdbDisplayTitle(item: TMDBSearchResult): string {
+	return item.title || item.name || item.original_title || item.original_name || 'Unknown';
+}
+
+/** Release year from a TMDB search result */
+export function tmdbYear(item: TMDBSearchResult): string | null {
+	const date = item.release_date || item.first_air_date;
+	if (!date) return null;
+	return date.split('-')[0] || null;
+}
+
+// ─── Jellyfin types ───────────────────────────────────────────────────────────
+
+/** A single item from the Jellyfin media library */
+export interface JellyfinItem {
+	/** Jellyfin item ID */
+	id: string;
+	/** Display name */
+	name: string;
+	/** Production year */
+	year?: number;
+	/** Jellyfin item type */
+	type: 'Movie' | 'Series';
+	/** TMDB numeric ID (string from Jellyfin ProviderIds) */
+	tmdbId?: string;
+	/** IMDB ID e.g. "tt0944947" */
+	imdbId?: string;
+	/** Proxied poster URL via /api/library/image/{id} */
+	imageUrl: string;
+	/** Whether Jellyfin has a Primary image for this item */
+	hasPoster: boolean;
 }

@@ -25,5 +25,13 @@ export const env = {
 	/** Base Jellyfin/media directory (contains tv/ and movies/ subdirs) */
 	MEDIA_DIR: svelteEnv.MEDIA_DIR || '/media',
 	/** Where qBittorrent stores completed downloads (for copy-from path mapping) */
-	TORRENT_DOWNLOAD_DIR: svelteEnv.TORRENT_DOWNLOAD_DIR || '/torrents'
+	TORRENT_DOWNLOAD_DIR: svelteEnv.TORRENT_DOWNLOAD_DIR || '/torrents',
+	/** TMDB API key (v3) or Read Access Token (v4 Bearer) */
+	TMDB_API_KEY: svelteEnv.TMDB_API_KEY || '',
+	/** ISO country code for watch provider region */
+	TMDB_REGION: svelteEnv.TMDB_REGION || 'GB',
+	/** Jellyfin server URL e.g. http://192.168.1.69:8096 */
+	JELLYFIN_URL: svelteEnv.JELLYFIN_URL || '',
+	/** Jellyfin API key (Dashboard → API Keys) */
+	JELLYFIN_API_KEY: svelteEnv.JELLYFIN_API_KEY || ''
 };
