@@ -8,17 +8,6 @@
 import { env } from './env.js';
 import type { JellyfinItem } from '$lib/types.js';
 
-// ─── Cache ────────────────────────────────────────────────────────────────────
-
-interface LibraryCache {
-	movies: JellyfinItem[];
-	tvshows: JellyfinItem[];
-	builtAt: number;
-}
-
-let cache: LibraryCache | null = null;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
 // ─── Library folder IDs (discovered once, then cached permanently) ────────────
 
 interface LibraryFolders {
@@ -130,14 +119,6 @@ export async function getLibraryItems(
 ): Promise<JellyfinItem[]> {
 	if (!isJellyfinConfigured()) return [];
 
-	// Return cached if fresh
-	if (cache && Date.now() - cache.builtAt < CACHE_TTL) {
-		if (type === 'movies') return cache.movies;
-		if (type === 'tvshows') return cache.tvshows;
-		return [...cache.movies, ...cache.tvshows].sort((a, b) => a.name.localeCompare(b.name));
-	}
-
-	// Rebuild cache
 	const folders = await getLibraryFolders();
 
 	const [movies, tvshows] = await Promise.all([
@@ -145,16 +126,9 @@ export async function getLibraryItems(
 		folders.tvshowsId ? fetchItemsForLibrary(folders.tvshowsId, 'Series') : Promise.resolve([])
 	]);
 
-	cache = { movies, tvshows, builtAt: Date.now() };
-
 	if (type === 'movies') return movies;
 	if (type === 'tvshows') return tvshows;
 	return [...movies, ...tvshows].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-/** Invalidate the library cache (call after a download completes) */
-export function invalidateLibraryCache(): void {
-	cache = null;
 }
 
 /**

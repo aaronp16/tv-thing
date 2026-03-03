@@ -5,6 +5,7 @@
 	 * This is the top-level component that gets swapped in when the Discover tab is active.
 	 */
 	import DiscoverSearchResults from '$lib/components/discover/DiscoverSearchResults.svelte';
+	import TrendingSection from '$lib/components/discover/TrendingSection.svelte';
 	import MediaDetailPage from '$lib/components/discover/MediaDetailPage.svelte';
 	import { tmdbDisplayTitle, tmdbYear, type TMDBSearchResult, type SearchResult } from '$lib/types';
 
@@ -62,10 +63,10 @@
 		}
 	}
 
-	async function checkDownloadStatus(items: TMDBSearchResult[]) {
-		const newDownloaded = new Set<number>();
+	async function checkDownloadStatus(items: TMDBSearchResult[], replace: boolean = true) {
+		const newDownloaded = new Set<number>(replace ? [] : downloadedIds);
 
-		// Check in parallel (batch of 5)
+		// Check in parallel
 		const checks = items.map(async (item) => {
 			try {
 				const title = tmdbDisplayTitle(item);
@@ -86,6 +87,11 @@
 
 		await Promise.all(checks);
 		downloadedIds = newDownloaded;
+	}
+
+	/** Merge-append library checks for trending items (doesn't replace search results) */
+	function checkTrendingDownloadStatus(items: TMDBSearchResult[]) {
+		checkDownloadStatus(items, false);
 	}
 
 	function handleSearchInput(e: Event) {
@@ -271,32 +277,12 @@
 			<!-- Results area (scrollable) -->
 			<div class="scrollbar-thin flex-1 overflow-y-auto px-4 pb-4 sm:px-6">
 				{#if !hasSearched}
-					<!-- Empty state -->
-					<div class="animate-fade-in flex h-full flex-col items-center justify-center py-20">
-						<div class="relative">
-							<!-- Decorative gradient blob -->
-							<div
-								class="absolute -inset-16 rounded-full bg-gradient-to-r from-blue-500/5 via-violet-500/5
-								to-blue-500/5 blur-3xl"
-							></div>
-
-							<svg
-								class="relative h-20 w-20 text-neutral-700"
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="0.75"
-									d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"
-								/>
-							</svg>
-						</div>
-						<p class="mt-6 text-sm text-neutral-500">Discover movies and TV shows</p>
-						<p class="mt-1 text-xs text-neutral-600">Search to find details and torrents</p>
-					</div>
+					<!-- Trending content (default view) -->
+					<TrendingSection
+						onSelect={selectItem}
+						{downloadedIds}
+						onCheckDownloadStatus={checkTrendingDownloadStatus}
+					/>
 				{:else}
 					<DiscoverSearchResults
 						results={searchResults}

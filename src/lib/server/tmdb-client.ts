@@ -131,6 +131,45 @@ export async function searchMulti(
 	};
 }
 
+// ─── Trending ─────────────────────────────────────────────────────────────────
+
+/**
+ * Get trending movies, TV shows, or both.
+ * Uses TMDB's /trending endpoint which returns the same shape as search results.
+ */
+export async function getTrending(
+	mediaType: 'all' | 'movie' | 'tv' = 'all',
+	timeWindow: 'day' | 'week' = 'week',
+	page: number = 1
+): Promise<{ results: TMDBSearchResult[]; total: number; page: number; totalPages: number }> {
+	const cacheKey = `trending:${mediaType}:${timeWindow}:${page}`;
+	const cached = getCached<TMDBSearchResponse>(cacheKey);
+	if (cached) {
+		return {
+			results: cached.results,
+			total: cached.total_results,
+			page: cached.page,
+			totalPages: cached.total_pages
+		};
+	}
+
+	const data = await tmdbFetch<TMDBSearchResponse>(`/trending/${mediaType}/${timeWindow}`, {
+		page: String(page)
+	});
+
+	setCache(cacheKey, data, CACHE_TTL_SEARCH);
+
+	// Filter out people results if mediaType is 'all'
+	const filtered = data.results.filter((r) => r.media_type === 'movie' || r.media_type === 'tv');
+
+	return {
+		results: filtered,
+		total: data.total_results,
+		page: data.page,
+		totalPages: data.total_pages
+	};
+}
+
 // ─── Movie Details ────────────────────────────────────────────────────────────
 
 /**
