@@ -225,6 +225,100 @@ export async function getSeasonDetails(
 	return data;
 }
 
+// ─── Discover ─────────────────────────────────────────────────────────────────
+
+export interface DiscoverOptions {
+	mediaType: 'movie' | 'tv';
+	sortBy: 'popularity.desc' | 'vote_average.desc' | 'release_date.desc';
+	genre?: number;
+	year?: number;
+	yearMode?: 'in' | 'since';
+	month?: number;
+	page?: number;
+}
+
+/**
+ * Discover movies or TV shows with filtering and sorting via TMDB's /discover endpoint.
+ * Supports genre, year (exact or since), month, and sort order.
+ */
+export async function getDiscover(
+	options: DiscoverOptions
+): Promise<{ results: TMDBSearchResult[]; total: number; page: number; totalPages: number }> {
+	const { mediaType, sortBy, genre, year, yearMode = 'in', month, page = 1 } = options;
+
+	const cacheKey = `discover:${mediaType}:${sortBy}:${genre ?? ''}:${year ?? ''}:${yearMode}:${month ?? ''}:${page}`;
+	const cached = getCached<TMDBSearchResponse>(cacheKey);
+	if (cached) {
+		return {
+			results: cached.results.map((r) => ({ ...r, media_type: mediaType })),
+			total: cached.total_results,
+			page: cached.page,
+			totalPages: cached.total_pages
+		};
+	}
+
+	const params: Record<string, string> = {
+		page: String(page),
+		sort_by: sortBy,
+		include_adult: 'false',
+		include_video: 'false'
+	};
+
+	// Minimum vote count for Top Rated to avoid obscure titles
+	if (sortBy === 'vote_average.desc') {
+		params['vote_count.gte'] = '150';
+	}
+
+	if (genre) {
+		params['with_genres'] = String(genre);
+	}
+
+	if (year) {
+		if (yearMode === 'in') {
+			if (month) {
+				// Exact month range
+				const lastDay = new Date(year, month, 0).getDate();
+				const mm = String(month).padStart(2, '0');
+				if (mediaType === 'movie') {
+					params['primary_release_date.gte'] = `${year}-${mm}-01`;
+					params['primary_release_date.lte'] = `${year}-${mm}-${lastDay}`;
+				} else {
+					params['first_air_date.gte'] = `${year}-${mm}-01`;
+					params['first_air_date.lte'] = `${year}-${mm}-${lastDay}`;
+				}
+			} else {
+				// Exact year
+				if (mediaType === 'movie') {
+					params['primary_release_year'] = String(year);
+				} else {
+					params['first_air_date_year'] = String(year);
+				}
+			}
+		} else {
+			// Since year — everything from Jan 1 of that year onward
+			if (mediaType === 'movie') {
+				params['primary_release_date.gte'] = `${year}-01-01`;
+			} else {
+				params['first_air_date.gte'] = `${year}-01-01`;
+			}
+		}
+	}
+
+	const data = await tmdbFetch<TMDBSearchResponse>(`/discover/${mediaType}`, params);
+
+	setCache(cacheKey, data, CACHE_TTL_SEARCH);
+
+	// Tag results with media_type since /discover doesn't include it
+	const results = data.results.map((r) => ({ ...r, media_type: mediaType as 'movie' | 'tv' }));
+
+	return {
+		results,
+		total: data.total_results,
+		page: data.page,
+		totalPages: data.total_pages
+	};
+}
+
 // ─── Watch Providers ──────────────────────────────────────────────────────────
 
 /**

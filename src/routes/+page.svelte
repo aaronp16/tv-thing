@@ -92,7 +92,7 @@
 	}
 
 	// Compute slide direction for tab transitions
-	const tabOrder: MobileTab[] = ['search', 'discover', 'downloads'];
+	const tabOrder: MobileTab[] = ['search', 'discover', 'library', 'downloads'];
 	const tabSlideClass = $derived.by(() => {
 		const prevIndex = tabOrder.indexOf(previousMobileTab);
 		const currIndex = tabOrder.indexOf(mobileTab);
@@ -530,6 +530,17 @@
 					</div>
 				{/if}
 			</div>
+		{/if}
+
+		<!-- Mobile-only: Library tab -->
+		{#if isMobile && mobileTab === 'library'}
+			{#key mobileTab}
+				<div class="absolute inset-0 flex flex-col bg-neutral-900 {tabSlideClass}">
+					<div class="flex-1 overflow-hidden pb-20">
+						<LibraryPanel onSelect={handleLibrarySelect} />
+					</div>
+				</div>
+			{/key}
 		{/if}
 
 		<!-- Mobile-only: Downloads tab -->

@@ -1,5 +1,5 @@
 <script lang="ts">
-	export type MobileTab = 'search' | 'discover' | 'downloads';
+	export type MobileTab = 'search' | 'discover' | 'library' | 'downloads';
 
 	interface Props {
 		activeTab: MobileTab;
@@ -57,6 +57,27 @@
 			<span class="text-xs font-medium">Discover</span>
 		</button>
 
+		<!-- Library Tab -->
+		<button
+			onclick={() => onTabChange('library')}
+			class="flex flex-1 flex-col items-center justify-center gap-1 border-t-2 py-2 transition-all {activeTab ===
+			'library'
+				? 'border-emerald-400 bg-white/[0.04] text-emerald-400'
+				: 'border-transparent text-neutral-500'}"
+			aria-label="Library"
+			aria-current={activeTab === 'library' ? 'page' : undefined}
+		>
+			<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					stroke-width="2"
+					d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
+				/>
+			</svg>
+			<span class="text-xs font-medium">Library</span>
+		</button>
+
 		<!-- Downloads Tab -->
 		<button
 			onclick={() => onTabChange('downloads')}
@@ -79,7 +100,7 @@
 
 			{#if activeDownloadCount > 0}
 				<span
-					class="absolute top-1 right-[20%] flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-bold text-white"
+					class="absolute top-1 right-[12%] flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-bold text-white"
 				>
 					{activeDownloadCount}
 				</span>

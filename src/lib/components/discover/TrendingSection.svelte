@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
-	 * Trending media section — replaces the Discover empty state.
-	 * Shows trending movies & TV from TMDB with infinite scroll,
-	 * genre filtering, media type toggle, and "NEW" badges.
+	 * Browse section — shown as the Discover empty-state.
+	 * Two tabs: Trending (TMDB /trending) and Top Rated (TMDB /discover?sort_by=vote_average.desc).
+	 * Supports server-side genre, year, and month filters with infinite scroll.
 	 */
 	import PosterImage from '$lib/components/ui/PosterImage.svelte';
 	import StarRating from '$lib/components/ui/StarRating.svelte';
@@ -10,7 +10,6 @@
 	import DownloadedCheck from '$lib/components/ui/DownloadedCheck.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import { tmdbDisplayTitle, tmdbYear, TMDB_GENRES, type TMDBSearchResult } from '$lib/types';
-	import { onMount } from 'svelte';
 
 	interface Props {
 		onSelect: (item: TMDBSearchResult) => void;
@@ -22,12 +21,15 @@
 
 	// ─── State ────────────────────────────────────────────────────────────────
 
+	type ActiveTab = 'trending' | 'top';
 	type MediaFilter = 'all' | 'movie' | 'tv';
-	type TimeWindow = 'day' | 'week';
 
+	let activeTab = $state<ActiveTab>('trending');
 	let mediaFilter = $state<MediaFilter>('all');
-	let timeWindow = $state<TimeWindow>('week');
 	let selectedGenre = $state<number | null>(null);
+	// yearValue encodes both year and mode: "" | "in:2024" | "since:2024"
+	let yearValue = $state<string>('');
+	let selectedMonth = $state<number | null>(null);
 
 	let allItems = $state<TMDBSearchResult[]>([]);
 	let page = $state(1);
@@ -42,6 +44,23 @@
 
 	// ─── Derived ──────────────────────────────────────────────────────────────
 
+	// Parse yearValue into { year, mode }
+	const parsedYear = $derived.by(() => {
+		if (!yearValue) return null;
+		const [mode, y] = yearValue.split(':');
+		return { year: Number(y), mode: mode as 'in' | 'since' };
+	});
+
+	// Whether any filter is active (forces /discover instead of /trending)
+	const hasActiveFilters = $derived(selectedGenre !== null || parsedYear !== null);
+
+	// On Trending with no active filters, 'all' is valid; otherwise resolve to movie/tv
+	const effectiveMediaType = $derived.by((): 'movie' | 'tv' | 'all' => {
+		if (activeTab === 'top') return mediaFilter === 'all' ? 'movie' : mediaFilter;
+		if (hasActiveFilters) return mediaFilter === 'all' ? 'movie' : mediaFilter;
+		return mediaFilter;
+	});
+
 	// 30-day threshold for "NEW" badge
 	const NEW_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -51,35 +70,40 @@
 		const releaseDate = new Date(dateStr);
 		const now = new Date();
 		const diff = now.getTime() - releaseDate.getTime();
-		// Must be released (not future) and within 30 days
 		return diff >= 0 && diff <= NEW_THRESHOLD_MS;
 	}
 
-	// Available genres derived from loaded items
-	const availableGenres = $derived.by(() => {
-		const genreCounts = new Map<number, number>();
-		for (const item of allItems) {
-			for (const gid of item.genre_ids) {
-				if (TMDB_GENRES[gid]) {
-					genreCounts.set(gid, (genreCounts.get(gid) || 0) + 1);
-				}
-			}
-		}
-		// Sort by frequency (most common first), then alphabetical
-		return [...genreCounts.entries()]
-			.sort((a, b) => b[1] - a[1] || TMDB_GENRES[a[0]].localeCompare(TMDB_GENRES[b[0]]))
-			.map(([id]) => ({ id, name: TMDB_GENRES[id] }));
-	});
+	// Genres for the select: always the full static list, alphabetical
+	const genreOptions = Object.entries(TMDB_GENRES)
+		.map(([id, name]) => ({ id: Number(id), name }))
+		.sort((a, b) => a.name.localeCompare(b.name));
 
-	// Filtered items (genre is client-side)
-	const filteredItems = $derived.by(() => {
-		if (!selectedGenre) return allItems;
-		return allItems.filter((item) => item.genre_ids.includes(selectedGenre!));
-	});
+	// Year options: current year down to 100 years ago
+	const currentYear = new Date().getFullYear();
+	const yearOptions = Array.from({ length: 101 }, (_, i) => currentYear - i);
+
+	// Month names
+	const MONTH_NAMES = [
+		'January',
+		'February',
+		'March',
+		'April',
+		'May',
+		'June',
+		'July',
+		'August',
+		'September',
+		'October',
+		'November',
+		'December'
+	];
+
+	// Show month select only when year is set to "in" mode
+	const showMonthSelect = $derived(parsedYear !== null && parsedYear.mode === 'in');
 
 	// ─── Data fetching ────────────────────────────────────────────────────────
 
-	async function fetchTrending(pageNum: number, append: boolean = false) {
+	async function fetchItems(pageNum: number, append: boolean = false) {
 		if (append) {
 			loadingMore = true;
 		} else {
@@ -88,13 +112,37 @@
 		}
 
 		try {
-			const params = new URLSearchParams({
-				type: mediaFilter,
-				window: timeWindow,
-				page: String(pageNum)
-			});
-			const res = await fetch(`/api/tmdb/trending?${params}`);
-			if (!res.ok) throw new Error('Failed to fetch trending');
+			let url: string;
+
+			if (activeTab === 'trending' && !hasActiveFilters) {
+				// Pure trending — fast TMDB trending endpoint
+				const params = new URLSearchParams({
+					type: effectiveMediaType as string,
+					window: 'week',
+					page: String(pageNum)
+				});
+				url = `/api/tmdb/trending?${params}`;
+			} else {
+				// Discover — supports all filters + Top Rated sort
+				const mt = effectiveMediaType === 'all' ? 'movie' : effectiveMediaType;
+				const params = new URLSearchParams({
+					type: mt,
+					sort_by: activeTab === 'top' ? 'vote_average.desc' : 'popularity.desc',
+					page: String(pageNum)
+				});
+				if (selectedGenre) params.set('genre', String(selectedGenre));
+				if (parsedYear) {
+					params.set('year', String(parsedYear.year));
+					params.set('year_mode', parsedYear.mode);
+					if (selectedMonth && parsedYear.mode === 'in') {
+						params.set('month', String(selectedMonth));
+					}
+				}
+				url = `/api/tmdb/discover?${params}`;
+			}
+
+			const res = await fetch(url);
+			if (!res.ok) throw new Error('Failed to fetch');
 			const data = await res.json();
 
 			if (append) {
@@ -105,10 +153,9 @@
 			page = data.page;
 			totalPages = data.totalPages;
 
-			// Check library status for newly loaded items
 			onCheckDownloadStatus?.(data.results);
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load trending';
+			error = e instanceof Error ? e.message : 'Failed to load';
 		} finally {
 			loading = false;
 			loadingMore = false;
@@ -117,21 +164,22 @@
 
 	function loadNextPage() {
 		if (loadingMore || page >= totalPages) return;
-		fetchTrending(page + 1, true);
+		fetchItems(page + 1, true);
 	}
 
-	// Reset and refetch when mediaFilter or timeWindow changes
+	// Reset and refetch whenever any filter/tab changes
 	$effect(() => {
-		// Track these reactive deps
-		const _mt = mediaFilter;
-		const _tw = timeWindow;
+		// Track reactive deps
+		const _tab = activeTab;
+		const _mt = effectiveMediaType;
+		const _genre = selectedGenre;
+		const _year = yearValue;
+		const _month = selectedMonth;
 
-		// Reset genre when media type changes since genre availability shifts
-		selectedGenre = null;
 		allItems = [];
 		page = 1;
 		totalPages = 1;
-		fetchTrending(1);
+		fetchItems(1);
 	});
 
 	// ─── Infinite scroll observer ─────────────────────────────────────────────
@@ -156,91 +204,235 @@
 		};
 	});
 
-	// Genre pill scroll container ref
-	let genreScrollEl = $state<HTMLDivElement | null>(null);
+	// ─── Actions ──────────────────────────────────────────────────────────────
+
+	function selectTab(tab: ActiveTab) {
+		if (tab === activeTab) return;
+		activeTab = tab;
+		// Top tab can't use 'all' — switch to movie, but keep other filters
+		if (tab === 'top' && mediaFilter === 'all') mediaFilter = 'movie';
+	}
+
+	function handleYearChange(e: Event) {
+		yearValue = (e.target as HTMLSelectElement).value;
+		// Reset month when year changes or is cleared
+		selectedMonth = null;
+	}
+
+	function handleMonthChange(e: Event) {
+		const val = (e.target as HTMLSelectElement).value;
+		selectedMonth = val ? Number(val) : null;
+	}
+
+	function handleGenreChange(e: Event) {
+		const val = (e.target as HTMLSelectElement).value;
+		selectedGenre = val ? Number(val) : null;
+	}
+
+	function handleTypeChange(e: Event) {
+		const val = (e.target as HTMLSelectElement).value as MediaFilter;
+		mediaFilter = val;
+	}
+
+	const hasAnyFilter = $derived(
+		selectedGenre !== null ||
+			yearValue !== '' ||
+			selectedMonth !== null ||
+			(activeTab === 'top' ? false : mediaFilter !== 'all') ||
+			(activeTab === 'top' && mediaFilter !== 'movie')
+	);
 </script>
 
-<div class="flex flex-col gap-4">
-	<!-- ── Header row ──────────────────────────────────────────────── -->
-	<div class="flex items-center justify-between">
-		<div class="flex items-center gap-2.5">
-			<div
-				class="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-orange-500/20 to-red-500/20 ring-1 ring-orange-500/20"
+<!-- Shared select style applied via a snippet approach — use a class string -->
+<div class="flex flex-col gap-3">
+	<!-- ── Tab bar + filters row ────────────────────────────────────── -->
+	<div class="flex flex-wrap items-center gap-2">
+		<!-- Tab toggle -->
+		<div class="flex items-center rounded-lg bg-neutral-800/80 p-0.5 ring-1 ring-white/[0.06]">
+			<button
+				type="button"
+				onclick={() => selectTab('trending')}
+				class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all
+					{activeTab === 'trending'
+					? 'bg-white/10 text-white shadow-sm'
+					: 'text-neutral-400 hover:text-neutral-300'}"
 			>
-				<svg class="h-3.5 w-3.5 text-orange-400" viewBox="0 0 24 24" fill="currentColor">
-					<path
-						d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
-					/>
+				<svg
+					class="h-3 w-3 {activeTab === 'trending' ? 'text-orange-400' : 'text-neutral-500'}"
+					viewBox="0 0 24 24"
+					fill="currentColor"
+				>
 					<path
 						d="M17.66 11.2c-.23-.3-.51-.56-.77-.82-.67-.6-1.43-1.03-2.07-1.66C13.33 7.26 13 5.86 13.95 4c-1.73.46-2.96 1.77-3.44 3.3-.03.12-.07.25-.1.36-.16.67-.04 1.34.25 1.96.18.37.23.77.05 1.08-.26.47-.83.63-1.35.4-.2-.1-.36-.24-.5-.4-.02-.02-.04-.05-.06-.07C7.3 12.37 8.1 14.93 10 16.3c.08.06.17.1.25.16-.12-.1-.24-.22-.34-.33-.3-.33-.5-.73-.6-1.16-.1-.5.02-1.05.42-1.35.3-.22.7-.27 1.05-.15.25.08.48.24.65.45.55.65 1.36 1.04 2.17.95.63-.07 1.2-.42 1.6-.93.3-.38.45-.84.4-1.3-.05-.45-.3-.84-.7-1.1-.22-.14-.47-.2-.72-.26z"
 					/>
 				</svg>
-			</div>
-			<h3 class="text-sm font-semibold text-white">Trending</h3>
-		</div>
-
-		<!-- Time window toggle -->
-		<div class="flex items-center rounded-full bg-neutral-800/80 p-0.5 ring-1 ring-white/[0.06]">
-			<button
-				type="button"
-				onclick={() => (timeWindow = 'day')}
-				class="rounded-full px-3 py-1 text-xs font-medium transition-all
-					{timeWindow === 'day'
-					? 'bg-white/10 text-white shadow-sm'
-					: 'text-neutral-400 hover:text-neutral-300'}"
-			>
-				Today
+				Trending
 			</button>
 			<button
 				type="button"
-				onclick={() => (timeWindow = 'week')}
-				class="rounded-full px-3 py-1 text-xs font-medium transition-all
-					{timeWindow === 'week'
+				onclick={() => selectTab('top')}
+				class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all
+					{activeTab === 'top'
 					? 'bg-white/10 text-white shadow-sm'
 					: 'text-neutral-400 hover:text-neutral-300'}"
 			>
-				This Week
-			</button>
-		</div>
-	</div>
-
-	<!-- ── Media type + genre pills ───────────────────────────────── -->
-	<div class="flex flex-col gap-2">
-		<!-- Media type row -->
-		<div class="flex gap-1.5">
-			{#each [['all', 'All'], ['movie', 'Movies'], ['tv', 'TV Shows']] as [val, label]}
-				<button
-					type="button"
-					onclick={() => (mediaFilter = val as MediaFilter)}
-					class="rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-all sm:px-4 sm:text-sm
-						{mediaFilter === val
-						? 'bg-white text-black'
-						: 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'}"
+				<svg
+					class="h-3 w-3 {activeTab === 'top' ? 'text-yellow-400' : 'text-neutral-500'}"
+					viewBox="0 0 24 24"
+					fill="currentColor"
 				>
-					{label}
-				</button>
-			{/each}
+					<path
+						d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"
+					/>
+				</svg>
+				Top Rated
+			</button>
 		</div>
 
-		<!-- Genre pills (horizontally scrollable) -->
-		{#if availableGenres.length > 0}
-			<div
-				bind:this={genreScrollEl}
-				class="scrollbar-none -mx-4 flex gap-1.5 overflow-x-auto px-4 sm:-mx-6 sm:px-6"
+		<!-- Divider -->
+		<div class="h-5 w-px bg-white/10"></div>
+
+		<!-- Type select -->
+		<div class="relative">
+			<select
+				value={mediaFilter}
+				onchange={handleTypeChange}
+				class="h-8 appearance-none rounded-lg border-0 bg-neutral-800 py-0 pr-7 pl-3 text-xs text-neutral-200
+					ring-1 ring-white/[0.08] transition-colors hover:bg-neutral-700 focus:ring-2 focus:ring-blue-500 focus:outline-none
+					{mediaFilter !== 'all' ? 'text-white ring-white/20' : ''}"
 			>
-				{#each availableGenres as genre (genre.id)}
-					<button
-						type="button"
-						onclick={() => (selectedGenre = selectedGenre === genre.id ? null : genre.id)}
-						class="rounded-full px-3 py-1 text-[11px] font-medium whitespace-nowrap transition-all
-							{selectedGenre === genre.id
-							? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30'
-							: 'bg-neutral-800/60 text-neutral-400 ring-1 ring-white/[0.04] hover:bg-neutral-800 hover:text-neutral-300'}"
-					>
-						{genre.name}
-					</button>
-				{/each}
+				{#if activeTab === 'trending' && !hasActiveFilters}
+					<option value="all">All</option>
+				{/if}
+				<option value="movie">Movies</option>
+				<option value="tv">TV Shows</option>
+			</select>
+			<div class="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+				<svg class="h-3 w-3 text-neutral-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2.5"
+						d="M19 9l-7 7-7-7"
+					/>
+				</svg>
 			</div>
+		</div>
+
+		<!-- Genre select -->
+		<div class="relative">
+			<select
+				value={selectedGenre ?? ''}
+				onchange={handleGenreChange}
+				class="h-8 appearance-none rounded-lg border-0 bg-neutral-800 py-0 pr-7 pl-3 text-xs
+					ring-1 ring-white/[0.08] transition-colors hover:bg-neutral-700 focus:ring-2 focus:ring-blue-500 focus:outline-none
+					{selectedGenre !== null ? 'text-white ring-white/20' : 'text-neutral-400'}"
+			>
+				<option value="">Genre</option>
+				{#each genreOptions as g (g.id)}
+					<option value={g.id}>{g.name}</option>
+				{/each}
+			</select>
+			<div class="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+				<svg class="h-3 w-3 text-neutral-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2.5"
+						d="M19 9l-7 7-7-7"
+					/>
+				</svg>
+			</div>
+		</div>
+
+		<!-- Year select -->
+		<div class="relative">
+			<select
+				value={yearValue}
+				onchange={handleYearChange}
+				class="h-8 appearance-none rounded-lg border-0 bg-neutral-800 py-0 pr-7 pl-3 text-xs
+					ring-1 ring-white/[0.08] transition-colors hover:bg-neutral-700 focus:ring-2 focus:ring-blue-500 focus:outline-none
+					{yearValue !== '' ? 'text-white ring-white/20' : 'text-neutral-400'}"
+			>
+				<option value="">Year</option>
+				<optgroup label="In year">
+					{#each yearOptions as y (y)}
+						<option value="in:{y}">{y}</option>
+					{/each}
+				</optgroup>
+				<optgroup label="Since year">
+					{#each yearOptions as y (y)}
+						<option value="since:{y}">Since {y}</option>
+					{/each}
+				</optgroup>
+			</select>
+			<div class="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+				<svg class="h-3 w-3 text-neutral-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2.5"
+						d="M19 9l-7 7-7-7"
+					/>
+				</svg>
+			</div>
+		</div>
+
+		<!-- Month select — only when year is set to "in" mode -->
+		{#if showMonthSelect}
+			<div class="relative">
+				<select
+					value={selectedMonth ?? ''}
+					onchange={handleMonthChange}
+					class="h-8 appearance-none rounded-lg border-0 bg-neutral-800 py-0 pr-7 pl-3 text-xs
+						ring-1 ring-white/[0.08] transition-colors hover:bg-neutral-700 focus:ring-2 focus:ring-blue-500 focus:outline-none
+						{selectedMonth !== null ? 'text-white ring-white/20' : 'text-neutral-400'}"
+				>
+					<option value="">Month</option>
+					{#each MONTH_NAMES as name, i}
+						<option value={i + 1}>{name}</option>
+					{/each}
+				</select>
+				<div class="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+					<svg
+						class="h-3 w-3 text-neutral-500"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="2.5"
+							d="M19 9l-7 7-7-7"
+						/>
+					</svg>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Clear all filters -->
+		{#if selectedGenre !== null || yearValue !== '' || (activeTab === 'top' && mediaFilter !== 'movie' && mediaFilter !== 'all')}
+			<button
+				type="button"
+				onclick={() => {
+					selectedGenre = null;
+					yearValue = '';
+					selectedMonth = null;
+					if (activeTab === 'trending') mediaFilter = 'all';
+				}}
+				class="flex h-8 items-center gap-1 rounded-lg px-2 text-xs text-neutral-500 transition-colors hover:text-neutral-300"
+			>
+				<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						d="M6 18L18 6M6 6l12 12"
+					/>
+				</svg>
+				Clear
+			</button>
 		{/if}
 	</div>
 
@@ -267,30 +459,36 @@
 					/>
 				</svg>
 			</div>
-			<p class="text-sm font-medium text-red-400">Couldn't load trending</p>
+			<p class="text-sm font-medium text-red-400">Couldn't load content</p>
 			<p class="mt-1 text-xs text-neutral-600">{error}</p>
 			<button
 				type="button"
-				onclick={() => fetchTrending(1)}
+				onclick={() => fetchItems(1)}
 				class="mt-3 text-xs text-blue-400 transition-colors hover:text-blue-300"
 			>
 				Try again
 			</button>
 		</div>
-	{:else if filteredItems.length === 0 && selectedGenre}
+	{:else if allItems.length === 0}
 		<div class="animate-fade-in py-12 text-center">
-			<p class="text-sm text-neutral-500">No trending titles in {TMDB_GENRES[selectedGenre]}</p>
-			<button
-				type="button"
-				onclick={() => (selectedGenre = null)}
-				class="mt-2 text-xs text-blue-400 transition-colors hover:text-blue-300"
-			>
-				Clear filter
-			</button>
+			<p class="text-sm text-neutral-500">No results found</p>
+			{#if selectedGenre || yearValue}
+				<button
+					type="button"
+					onclick={() => {
+						selectedGenre = null;
+						yearValue = '';
+						selectedMonth = null;
+					}}
+					class="mt-2 text-xs text-blue-400 transition-colors hover:text-blue-300"
+				>
+					Clear filters
+				</button>
+			{/if}
 		</div>
 	{:else}
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-			{#each filteredItems as item, i (item.id)}
+			{#each allItems as item, i (item.id)}
 				{@const title = tmdbDisplayTitle(item)}
 				{@const year = tmdbYear(item)}
 				{@const itemIsNew = isNew(item)}
@@ -304,10 +502,7 @@
 					style="animation-delay: {Math.min(i, 20) * 30}ms"
 				>
 					<!-- Poster -->
-					<div
-						class="card-hover relative overflow-hidden rounded-xl
-						ring-1 ring-white/[0.06]"
-					>
+					<div class="card-hover relative overflow-hidden rounded-xl ring-1 ring-white/[0.06]">
 						<PosterImage path={item.poster_path} alt={title} size="w342" class="w-full" />
 
 						<!-- Hover overlay -->
@@ -360,8 +555,7 @@
 					<!-- Text below poster -->
 					<div class="mt-2 px-0.5">
 						<h3
-							class="truncate text-sm font-medium text-neutral-200
-							transition-colors group-hover:text-white"
+							class="truncate text-sm font-medium text-neutral-200 transition-colors group-hover:text-white"
 						>
 							{title}
 						</h3>
