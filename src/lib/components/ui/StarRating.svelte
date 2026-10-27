@@ -14,17 +14,13 @@
 	let { score, max = 10, size = 'sm', showLabel = true, class: className = '' }: Props = $props();
 
 	const sizeClasses: Record<string, { icon: string; text: string }> = {
-		sm: { icon: 'w-3.5 h-3.5', text: 'text-xs' },
-		md: { icon: 'w-4 h-4', text: 'text-sm' },
-		lg: { icon: 'w-5 h-5', text: 'text-base' }
+		sm: { icon: 'w-3 h-3', text: 'font-mono text-[11px]' },
+		md: { icon: 'w-3.5 h-3.5', text: 'font-mono text-xs' },
+		lg: { icon: 'w-4 h-4', text: 'font-mono text-sm' }
 	};
 
-	const scoreColor = $derived.by(() => {
-		const pct = score / max;
-		if (pct >= 0.7) return 'text-emerald-400';
-		if (pct >= 0.5) return 'text-amber-400';
-		return 'text-red-400';
-	});
+	// Marquee gold for good scores, muted otherwise
+	const scoreColor = $derived(score / max >= 0.7 ? 'text-gold-400' : 'text-neutral-400');
 
 	const fillPct = $derived(Math.round((score / max) * 100));
 </script>
@@ -50,7 +46,7 @@
 		</svg>
 	</span>
 	{#if showLabel}
-		<span class="{sizeClasses[size].text} {scoreColor} font-semibold tabular-nums">
+		<span class="{sizeClasses[size].text} {scoreColor} font-medium tabular-nums">
 			{score.toFixed(1)}
 		</span>
 	{/if}

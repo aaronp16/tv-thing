@@ -275,3 +275,90 @@ export async function downloadTorrentFile(fid: number, filename: string): Promis
 
 	return buffer;
 }
+
+// ─── Snatchlist (seeding / hit-and-run status) ────────────────────────────────
+
+/** One row of the user's TL snatchlist */
+export interface TLSnatch {
+	tlId: number;
+	name: string;
+	size: number;
+	ratio: number;
+	seedSeconds: number;
+	onHnrList: boolean;
+}
+
+const SNATCHLIST_TTL = 5 * 60_000;
+const HNR_RULE_TTL = 24 * 60 * 60_000;
+const DEFAULT_REQUIRED_HOURS = 168;
+
+let snatchCache: { entries: TLSnatch[]; fetchedAt: number } | null = null;
+let hnrRuleCache: { hours: number; fetchedAt: number } | null = null;
+
+async function fetchProfilePage(page: string): Promise<string> {
+	const url = `${BASE_URL}/profile/${encodeURIComponent(env.TL_USERNAME)}/${page}`;
+	const response = await tlFetch(url, { headers: { Accept: 'text/html' } });
+	if (!response.ok) {
+		throw new Error(`Failed to fetch TL ${page}: ${response.status}`);
+	}
+	return response.text();
+}
+
+/**
+ * Parse the snatchlist table. Each row carries machine-readable values in
+ * data-sort attributes (bytes, seconds) alongside the display text.
+ */
+function parseSnatchlist(html: string): TLSnatch[] {
+	const tbody = html.match(/<th[^>]*>Name<\/th>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/i)?.[1] ?? '';
+	const entries: TLSnatch[] = [];
+
+	for (const row of tbody.split(/<tr>/i).slice(1)) {
+		const id = row.match(/class="torrent_name"[^>]*href="\/torrent\/(\d+)"/)?.[1];
+		const name = row.match(/<td data-sort="([^"]*)"/)?.[1];
+		const size = row.match(/<\/td>\s*<td data-sort="(\d+)">/)?.[1];
+		const ratio = row.match(/title="Ratio">([^<]*)</)?.[1];
+		const seed = row.match(/data-sort="(\d+)" title="Seeding Time"/)?.[1];
+		const hnr = row.match(/title="Contained in HitnRUn list">([^<]*)</)?.[1];
+		if (!id || !size) continue;
+
+		entries.push({
+			tlId: Number(id),
+			name: name ?? '',
+			size: Number(size),
+			ratio: parseFloat(ratio ?? '0') || 0,
+			seedSeconds: Number(seed ?? 0),
+			onHnrList: hnr?.trim().toLowerCase() === 'yes'
+		});
+	}
+
+	return entries;
+}
+
+/** Get the user's snatchlist (cached for 5 minutes) */
+export async function getSnatchlist(force = false): Promise<TLSnatch[]> {
+	if (!force && snatchCache && Date.now() - snatchCache.fetchedAt < SNATCHLIST_TTL) {
+		return snatchCache.entries;
+	}
+	const entries = parseSnatchlist(await fetchProfilePage('snatchlist'));
+	snatchCache = { entries, fetchedAt: Date.now() };
+	return entries;
+}
+
+/**
+ * Minimum seeding hours before a torrent can't become a hit-and-run.
+ * Read from the H&R page ("Seed the torrent for 168 Hours"), cached for a day.
+ */
+export async function getRequiredSeedHours(): Promise<number> {
+	if (hnrRuleCache && Date.now() - hnrRuleCache.fetchedAt < HNR_RULE_TTL) {
+		return hnrRuleCache.hours;
+	}
+	let hours = DEFAULT_REQUIRED_HOURS;
+	try {
+		const match = (await fetchProfilePage('hnr')).match(/Seed the torrent for (\d+) Hours/i);
+		if (match) hours = Number(match[1]);
+	} catch (err) {
+		console.warn('[tl-client] Could not read H&R rule, using default:', err);
+	}
+	hnrRuleCache = { hours, fetchedAt: Date.now() };
+	return hours;
+}

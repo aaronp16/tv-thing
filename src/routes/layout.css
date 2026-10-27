@@ -1,11 +1,131 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/archivo/wdth.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
 
-/* Custom colors */
+/* ─── Design tokens ─────────────────────────────────────────────────────────
+ * "Projection booth": warm charcoal surfaces, bone text, marquee gold accent.
+ * Status colours: ember = in cinemas / at risk, sage = in library / safe,
+ * tide = coming soon / TV, brick = destructive.
+ */
 @theme {
-	--color-neutral-750: #333338;
-	--color-neutral-850: #1a1a1e;
+	--font-sans: 'Archivo Variable', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+	/* Warm neutrals replace Tailwind's grey scale */
+	--color-neutral-50: oklch(0.972 0.006 70);
+	--color-neutral-100: oklch(0.94 0.008 70);
+	--color-neutral-200: oklch(0.885 0.01 70);
+	--color-neutral-300: oklch(0.8 0.012 70);
+	--color-neutral-400: oklch(0.685 0.013 70);
+	--color-neutral-500: oklch(0.565 0.013 70);
+	--color-neutral-600: oklch(0.455 0.012 70);
+	--color-neutral-700: oklch(0.375 0.011 70);
+	--color-neutral-750: oklch(0.33 0.01 70);
+	--color-neutral-800: oklch(0.29 0.009 70);
+	--color-neutral-850: oklch(0.245 0.008 70);
+	--color-neutral-900: oklch(0.208 0.007 70);
+	--color-neutral-950: oklch(0.17 0.006 70);
+
+	--color-white: oklch(0.955 0.012 85);
+	--color-black: oklch(0.13 0.005 70);
+
+	--color-gold-50: oklch(0.975 0.0338 82);
+	--color-gold-100: oklch(0.945 0.054 82);
+	--color-gold-200: oklch(0.895 0.081 82);
+	--color-gold-300: oklch(0.835 0.108 82);
+	--color-gold-400: oklch(0.765 0.1283 82);
+	--color-gold-500: oklch(0.69 0.135 82);
+	--color-gold-600: oklch(0.6 0.1242 82);
+	--color-gold-700: oklch(0.505 0.108 82);
+	--color-gold-800: oklch(0.42 0.0918 82);
+	--color-gold-900: oklch(0.345 0.0743 82);
+	--color-gold-950: oklch(0.26 0.0567 82);
+
+	--color-ember-50: oklch(0.975 0.04 48);
+	--color-ember-100: oklch(0.945 0.064 48);
+	--color-ember-200: oklch(0.895 0.096 48);
+	--color-ember-300: oklch(0.835 0.128 48);
+	--color-ember-400: oklch(0.765 0.152 48);
+	--color-ember-500: oklch(0.69 0.16 48);
+	--color-ember-600: oklch(0.6 0.1472 48);
+	--color-ember-700: oklch(0.505 0.128 48);
+	--color-ember-800: oklch(0.42 0.1088 48);
+	--color-ember-900: oklch(0.345 0.088 48);
+	--color-ember-950: oklch(0.26 0.0672 48);
+
+	--color-sage-50: oklch(0.975 0.0187 138);
+	--color-sage-100: oklch(0.945 0.03 138);
+	--color-sage-200: oklch(0.895 0.045 138);
+	--color-sage-300: oklch(0.835 0.06 138);
+	--color-sage-400: oklch(0.765 0.0712 138);
+	--color-sage-500: oklch(0.69 0.075 138);
+	--color-sage-600: oklch(0.6 0.069 138);
+	--color-sage-700: oklch(0.505 0.06 138);
+	--color-sage-800: oklch(0.42 0.051 138);
+	--color-sage-900: oklch(0.345 0.0413 138);
+	--color-sage-950: oklch(0.26 0.0315 138);
+
+	--color-tide-50: oklch(0.975 0.015 200);
+	--color-tide-100: oklch(0.945 0.024 200);
+	--color-tide-200: oklch(0.895 0.036 200);
+	--color-tide-300: oklch(0.835 0.048 200);
+	--color-tide-400: oklch(0.765 0.057 200);
+	--color-tide-500: oklch(0.69 0.06 200);
+	--color-tide-600: oklch(0.6 0.0552 200);
+	--color-tide-700: oklch(0.505 0.048 200);
+	--color-tide-800: oklch(0.42 0.0408 200);
+	--color-tide-900: oklch(0.345 0.033 200);
+	--color-tide-950: oklch(0.26 0.0252 200);
+
+	--color-brick-50: oklch(0.975 0.0413 27);
+	--color-brick-100: oklch(0.945 0.066 27);
+	--color-brick-200: oklch(0.895 0.099 27);
+	--color-brick-300: oklch(0.835 0.132 27);
+	--color-brick-400: oklch(0.765 0.1568 27);
+	--color-brick-500: oklch(0.69 0.165 27);
+	--color-brick-600: oklch(0.6 0.1518 27);
+	--color-brick-700: oklch(0.505 0.132 27);
+	--color-brick-800: oklch(0.42 0.1122 27);
+	--color-brick-900: oklch(0.345 0.0908 27);
+	--color-brick-950: oklch(0.26 0.0693 27);
+}
+
+/* ─── Base ───────────────────────────────────────────────────────────────── */
+
+@layer base {
+	html {
+		font-family: var(--font-sans);
+		font-feature-settings:
+			'ss01',
+			'tnum' 0;
+		-webkit-font-smoothing: antialiased;
+		color-scheme: dark;
+	}
+	::selection {
+		background: var(--color-gold-500);
+		color: var(--color-black);
+	}
+}
+
+/* Condensed poster-style display type (Archivo's width axis) */
+@utility font-display {
+	font-family: var(--font-sans);
+	font-stretch: 72%;
+	font-weight: 700;
+	letter-spacing: -0.005em;
+	line-height: 1.02;
+}
+
+/* Small uppercase label, e.g. section headings and tags */
+@utility eyebrow {
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	font-weight: 500;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
 }
 
 /* ─── Base Animations ──────────────────────────────────────────────────────── */
@@ -288,28 +408,33 @@
 /* ─── Gradient Overlays ────────────────────────────────────────────────────── */
 
 .gradient-fade-b {
-	background: linear-gradient(to bottom, transparent 0%, rgb(23 23 23) 100%);
+	background: linear-gradient(to bottom, transparent 0%, var(--color-neutral-900) 100%);
 }
 
 .gradient-fade-r {
-	background: linear-gradient(to right, rgb(23 23 23) 0%, transparent 50%, rgb(23 23 23) 100%);
+	background: linear-gradient(
+		to right,
+		var(--color-neutral-900) 0%,
+		transparent 50%,
+		var(--color-neutral-900) 100%
+	);
 }
 
 .gradient-hero {
 	background: linear-gradient(
 		to bottom,
 		transparent 0%,
-		rgba(23, 23, 23, 0.4) 40%,
-		rgba(23, 23, 23, 0.85) 70%,
-		rgb(23 23 23) 100%
+		color-mix(in oklch, var(--color-neutral-900) 40%, transparent) 40%,
+		color-mix(in oklch, var(--color-neutral-900) 85%, transparent) 70%,
+		var(--color-neutral-900) 100%
 	);
 }
 
 .gradient-hero-r {
 	background: linear-gradient(
 		to right,
-		rgb(23 23 23) 0%,
-		rgba(23, 23, 23, 0.6) 30%,
+		var(--color-neutral-900) 0%,
+		color-mix(in oklch, var(--color-neutral-900) 60%, transparent) 30%,
 		transparent 100%
 	);
 }

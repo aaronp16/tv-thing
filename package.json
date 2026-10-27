@@ -4,7 +4,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "vite dev --host",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -38,6 +38,8 @@
 		"vite": "^7.3.1"
 	},
 	"dependencies": {
+		"@fontsource-variable/archivo": "^5.3.0",
+		"@fontsource/ibm-plex-mono": "^5.3.0",
 		"@sveltejs/adapter-node": "^5.5.3"
 	}
 }

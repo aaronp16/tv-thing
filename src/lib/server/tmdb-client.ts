@@ -9,6 +9,7 @@
 import { env } from './env.js';
 import type {
 	TMDBSearchResult,
+	ReleaseAvailability,
 	TMDBMovieDetail,
 	TMDBTvDetail,
 	TMDBSeasonDetail
@@ -354,4 +355,109 @@ export function extractWatchProviders(
 		ads: regionData.ads || [],
 		link: regionData.link
 	};
+}
+
+// ─── Release availability ─────────────────────────────────────────────────────
+
+/** TMDB release types: https://developer.themoviedb.org/reference/movie-release-dates */
+const RELEASE_TYPE = {
+	PREMIERE: 1,
+	THEATRICAL_LIMITED: 2,
+	THEATRICAL: 3,
+	DIGITAL: 4,
+	PHYSICAL: 5,
+	TV: 6
+} as const;
+
+const HOME_RELEASE_TYPES = new Set<number>([
+	RELEASE_TYPE.DIGITAL,
+	RELEASE_TYPE.PHYSICAL,
+	RELEASE_TYPE.TV
+]);
+const THEATRICAL_TYPES = new Set<number>([
+	RELEASE_TYPE.THEATRICAL_LIMITED,
+	RELEASE_TYPE.THEATRICAL
+]);
+
+const CACHE_TTL_RELEASES = 12 * 60 * 60 * 1000; // 12 hours
+/** Movies first released longer ago than this are assumed to be out on digital */
+const ASSUME_RELEASED_AFTER_MS = 365 * 24 * 60 * 60 * 1000;
+
+interface TMDBReleaseDates {
+	results: {
+		iso_3166_1: string;
+		release_dates: { release_date: string; type: number }[];
+	}[];
+}
+
+const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+
+/**
+ * Work out whether a movie is out on digital/physical yet, or only in cinemas.
+ * Looks across all countries: the first home release anywhere is when
+ * torrents tend to appear.
+ */
+export async function getMovieAvailability(
+	movieId: number,
+	releaseDate?: string
+): Promise<ReleaseAvailability> {
+	const now = Date.now();
+	if (releaseDate && now - Date.parse(releaseDate) > ASSUME_RELEASED_AFTER_MS) {
+		return { status: 'released' };
+	}
+
+	const cacheKey = `release_dates:${movieId}`;
+	let data = getCached<TMDBReleaseDates>(cacheKey);
+	if (!data) {
+		data = await tmdbFetch<TMDBReleaseDates>(`/movie/${movieId}/release_dates`);
+		setCache(cacheKey, data, CACHE_TTL_RELEASES);
+	}
+
+	const dates = data.results.flatMap((r) =>
+		r.release_dates.map((d) => ({ type: d.type, time: Date.parse(d.release_date) }))
+	);
+
+	if (dates.length === 0) {
+		// No detailed dates: fall back to the primary release date
+		if (!releaseDate || Date.parse(releaseDate) > now) {
+			return { status: 'upcoming', date: releaseDate || undefined };
+		}
+		return { status: 'released' };
+	}
+
+	const home = dates.filter((d) => HOME_RELEASE_TYPES.has(d.type));
+	if (home.some((d) => d.time <= now)) return { status: 'released' };
+
+	const nextHome = home.map((d) => d.time).sort((a, b) => a - b)[0];
+	if (dates.some((d) => THEATRICAL_TYPES.has(d.type) && d.time <= now)) {
+		return { status: 'cinema', date: nextHome ? isoDate(new Date(nextHome)) : undefined };
+	}
+
+	const first = Math.min(...dates.map((d) => d.time));
+	return { status: 'upcoming', date: isoDate(new Date(first)) };
+}
+
+/** TV shows are out once their first episode has aired */
+function getTvAvailability(firstAirDate?: string): ReleaseAvailability {
+	if (!firstAirDate) return { status: 'upcoming' };
+	if (Date.parse(firstAirDate) > Date.now()) return { status: 'upcoming', date: firstAirDate };
+	return { status: 'released' };
+}
+
+/** Add `availability` to each result. Lookup failures just leave it unset. */
+export async function withAvailability(results: TMDBSearchResult[]): Promise<TMDBSearchResult[]> {
+	return Promise.all(
+		results.map(async (r) => {
+			try {
+				if (r.media_type === 'tv')
+					return { ...r, availability: getTvAvailability(r.first_air_date) };
+				if (r.media_type === 'movie') {
+					return { ...r, availability: await getMovieAvailability(r.id, r.release_date) };
+				}
+			} catch (err) {
+				console.warn(`[tmdb] Availability lookup failed for ${r.media_type} ${r.id}:`, err);
+			}
+			return r;
+		})
+	);
 }

@@ -19,10 +19,10 @@
 
 <span
 	class="animate-badge-pop inline-flex items-center justify-center rounded-full
-	bg-emerald-500/20 p-1 ring-1 ring-emerald-500/30 {className}"
+	bg-sage-500/20 p-1 ring-1 ring-sage-500/30 {className}"
 >
 	<svg
-		class="{sizeClasses[size]} text-emerald-400"
+		class="{sizeClasses[size]} text-sage-400"
 		viewBox="0 0 24 24"
 		fill="none"
 		stroke="currentColor"

@@ -178,6 +178,16 @@ export interface QBTorrent {
 	uploaded: number;
 	save_path: string;
 	content_path: string;
+	total_size: number;
+	tracker: string;
+}
+
+/** A file inside a torrent */
+export interface QBTorrentFile {
+	/** Path relative to the torrent's save path */
+	name: string;
+	size: number;
+	progress: number;
 }
 
 /**
@@ -317,6 +327,19 @@ export async function getTorrents(
 export async function getTorrent(hash: string): Promise<QBTorrent | null> {
 	const torrents = await getTorrents({ hashes: [hash] });
 	return torrents.length > 0 ? torrents[0] : null;
+}
+
+/**
+ * Get the files inside a torrent
+ */
+export async function getTorrentFiles(hash: string): Promise<QBTorrentFile[]> {
+	const response = await apiRequest(`/api/v2/torrents/files?hash=${hash}`);
+
+	if (!response.ok) {
+		throw new Error(`Failed to get torrent files: ${response.status}`);
+	}
+
+	return response.json();
 }
 
 /**

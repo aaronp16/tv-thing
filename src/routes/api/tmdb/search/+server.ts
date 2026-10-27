@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { searchMulti } from '$lib/server/tmdb-client';
+import { withAvailability, searchMulti } from '$lib/server/tmdb-client';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const query = url.searchParams.get('q');
@@ -12,7 +12,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	try {
 		const data = await searchMulti(query.trim(), page);
-		return json(data);
+		return json({ ...data, results: await withAvailability(data.results) });
 	} catch (err) {
 		console.error('[api/tmdb/search] Error:', err);
 		return json(

@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getMovieDetails } from '$lib/server/tmdb-client';
+import { getMovieAvailability, getMovieDetails } from '$lib/server/tmdb-client';
 
 export const GET: RequestHandler = async ({ params }) => {
 	const movieId = parseInt(params.id, 10);
@@ -11,7 +11,10 @@ export const GET: RequestHandler = async ({ params }) => {
 
 	try {
 		const data = await getMovieDetails(movieId);
-		return json(data);
+		const availability = await getMovieAvailability(movieId, data.release_date).catch(
+			() => undefined
+		);
+		return json({ ...data, availability });
 	} catch (err) {
 		console.error(`[api/tmdb/movie/${movieId}] Error:`, err);
 		return json(

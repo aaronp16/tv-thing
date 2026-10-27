@@ -120,7 +120,7 @@
 				<span class="text-xs text-neutral-500">{season.episode_count} episodes</span>
 				{#if isSeasonDownloaded}
 					<span
-						class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-400 ring-1 ring-emerald-500/25"
+						class="inline-flex items-center gap-1 rounded-full bg-sage-500/15 px-2 py-0.5 text-xs font-semibold text-sage-400 ring-1 ring-sage-500/25"
 					>
 						<svg
 							class="h-3 w-3"

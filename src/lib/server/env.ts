@@ -24,6 +24,8 @@ export const env = {
 	QB_SAVE_PATH: svelteEnv.QB_SAVE_PATH || '',
 	/** Base Jellyfin/media directory (contains tv/ and movies/ subdirs) */
 	MEDIA_DIR: svelteEnv.MEDIA_DIR || '/media',
+	/** Persistent app data (watch list) */
+	DATA_DIR: svelteEnv.DATA_DIR || '/config',
 	/** Where qBittorrent stores completed downloads (for copy-from path mapping) */
 	TORRENT_DOWNLOAD_DIR: svelteEnv.TORRENT_DOWNLOAD_DIR || '/torrents',
 	/** TMDB API key (v3) or Read Access Token (v4 Bearer) */

@@ -12,6 +12,8 @@
 	import WatchProviderBadges from '$lib/components/discover/WatchProviderBadges.svelte';
 	import TorrentList from '$lib/components/discover/TorrentList.svelte';
 	import SeasonAccordion from '$lib/components/discover/SeasonAccordion.svelte';
+	import { watchlist } from '$lib/stores/watchlist';
+	import { formatReleaseDate } from '$lib/format';
 	import {
 		tmdbImage,
 		type TMDBSearchResult,
@@ -21,13 +23,14 @@
 		type TMDBCastMember,
 		type TMDBGenre,
 		type TMDBSeasonSummary,
-		type SearchResult
+		type SearchResult,
+		type DownloadMeta
 	} from '$lib/types';
 
 	interface Props {
 		item: TMDBSearchResult;
 		onBack: () => void;
-		onDownload: (result: SearchResult) => void;
+		onDownload: (result: SearchResult, meta?: DownloadMeta) => void;
 		downloadingIds: Set<number>;
 	}
 
@@ -83,6 +86,17 @@
 			? movieDetail?.imdb_id || movieDetail?.external_ids?.imdb_id || null
 			: tvDetail?.external_ids?.imdb_id || null
 	);
+
+	/** Movies: from our API's release-date check. TV: not aired yet if first air date is in the future. */
+	const availability = $derived.by(() => {
+		if (isMovie) return movieDetail?.availability;
+		const firstAir = tvDetail?.first_air_date;
+		if (!tvDetail) return undefined;
+		if (!firstAir || Date.parse(firstAir) > Date.now()) {
+			return { status: 'upcoming' as const, date: firstAir || undefined };
+		}
+		return { status: 'released' as const };
+	});
 
 	const releaseYear = $derived.by(() => {
 		const date = isMovie ? movieDetail?.release_date : tvDetail?.first_air_date;
@@ -197,6 +211,39 @@
 		fetchDetail();
 	});
 
+	// ─── Downloads ────────────────────────────────────────────────────────────
+	// Tag downloads with this title so the library can show them with their poster
+	function downloadWithMeta(result: SearchResult) {
+		onDownload(result, { tmdbId: item.id, mediaType, title, posterPath });
+	}
+
+	// ─── Watch list ───────────────────────────────────────────────────────────
+	const mediaType = $derived<'movie' | 'tv'>(isMovie ? 'movie' : 'tv');
+	const onWatchlist = $derived(
+		$watchlist.some((w) => w.tmdbId === item.id && w.mediaType === mediaType)
+	);
+	let watchlistBusy = $state(false);
+
+	$effect(() => {
+		watchlist.ensureLoaded();
+	});
+
+	async function toggleWatchlist() {
+		watchlistBusy = true;
+		if (onWatchlist) {
+			await watchlist.remove({ tmdbId: item.id, mediaType, title });
+		} else {
+			await watchlist.add({
+				tmdbId: item.id,
+				mediaType,
+				title,
+				year: releaseYear || undefined,
+				posterPath
+			});
+		}
+		watchlistBusy = false;
+	}
+
 	function formatDate(date: string | null | undefined): string {
 		if (!date) return '';
 		try {
@@ -229,11 +276,11 @@
 		</div>
 	{:else if error}
 		<div class="animate-fade-in py-20 text-center">
-			<p class="text-red-400">{error}</p>
+			<p class="text-brick-400">{error}</p>
 			<button
 				type="button"
 				onclick={fetchDetail}
-				class="mt-3 text-sm text-blue-400 transition-colors hover:text-blue-300"
+				class="mt-3 text-sm text-gold-400 transition-colors hover:text-gold-300"
 			>
 				Try again
 			</button>
@@ -245,7 +292,9 @@
 		<div class="relative">
 			<!-- Backdrop image -->
 			{#if backdropPath}
-				<div class="animate-backdrop-reveal relative h-[350px] overflow-hidden sm:h-[420px]">
+				<div
+					class="animate-backdrop-reveal relative mx-4 mt-3 h-[350px] overflow-hidden rounded-lg sm:mx-6 sm:h-[420px]"
+				>
 					<img
 						src={tmdbImage(backdropPath, 'w1280')}
 						alt=""
@@ -256,7 +305,9 @@
 					<div class="gradient-hero-r absolute inset-0 sm:hidden"></div>
 				</div>
 			{:else}
-				<div class="h-[200px] bg-gradient-to-b from-neutral-800/50 to-neutral-900"></div>
+				<div
+					class="mx-4 mt-3 h-[200px] rounded-lg bg-gradient-to-b from-neutral-800/50 to-neutral-900 sm:mx-6"
+				></div>
 			{/if}
 
 			<!-- Content overlay -->
@@ -269,7 +320,7 @@
 					<!-- Poster -->
 					<div class="flex-shrink-0 self-center sm:self-start">
 						<div
-							class="w-[140px] overflow-hidden rounded-xl shadow-2xl
+							class="w-[140px] overflow-hidden rounded-md shadow-2xl
 							ring-1 shadow-black/50 ring-white/10 transition-transform
 							duration-300 hover:scale-[1.02] sm:w-[180px]"
 						>
@@ -281,7 +332,7 @@
 					<div class="min-w-0 flex-1 sm:pt-6">
 						<!-- Title + downloaded badge -->
 						<div class="flex items-start gap-3">
-							<h1 class="text-2xl leading-tight font-bold text-white sm:text-3xl">
+							<h1 class="font-display text-[40px] text-white sm:text-6xl">
 								{title}
 							</h1>
 						</div>
@@ -289,10 +340,10 @@
 						<!-- In Library banner -->
 						{#if isDownloaded}
 							<div
-								class="mt-3 flex items-center gap-2.5 rounded-xl bg-emerald-500/10 px-4 py-3 ring-1 ring-emerald-500/25"
+								class="mt-3 flex items-center gap-2.5 rounded-md border-l-2 border-sage-400 bg-sage-500/10 px-4 py-3"
 							>
 								<svg
-									class="h-5 w-5 flex-shrink-0 text-emerald-400"
+									class="h-5 w-5 flex-shrink-0 text-sage-400"
 									fill="none"
 									stroke="currentColor"
 									viewBox="0 0 24 24"
@@ -304,8 +355,82 @@
 										d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
 									/>
 								</svg>
-								<span class="text-sm font-semibold text-emerald-300">In your library</span>
+								<span class="text-sm font-semibold text-sage-300">In your library</span>
 							</div>
+						{:else if !loading}
+							{#if availability?.status === 'cinema'}
+								<div
+									class="mt-3 flex items-start gap-2.5 rounded-md border-l-2 border-ember-400 bg-ember-500/10 px-4 py-3"
+								>
+									<svg
+										class="mt-0.5 h-4 w-4 flex-shrink-0 text-ember-400"
+										fill="currentColor"
+										viewBox="0 0 24 24"
+									>
+										<path
+											d="M4 4h2l2 3h3L9 4h2l2 3h3l-2-3h4a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2z"
+										/>
+									</svg>
+									<div class="text-sm">
+										<p class="font-semibold text-ember-300">Only in cinemas</p>
+										<p class="text-ember-200/70">
+											{availability.date
+												? `Digital release expected ${formatReleaseDate(availability.date)} — good torrents usually appear then.`
+												: 'No digital release date yet, so good torrents are unlikely.'}
+										</p>
+									</div>
+								</div>
+							{:else if availability?.status === 'upcoming'}
+								<div
+									class="mt-3 flex items-start gap-2.5 rounded-md border-l-2 border-tide-300 bg-tide-500/10 px-4 py-3"
+								>
+									<svg
+										class="mt-0.5 h-4 w-4 flex-shrink-0 text-tide-400"
+										fill="none"
+										stroke="currentColor"
+										viewBox="0 0 24 24"
+										stroke-width="2"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+										/>
+									</svg>
+									<div class="text-sm">
+										<p class="font-semibold text-tide-300">
+											Not released yet{availability.date
+												? ` — out ${formatReleaseDate(availability.date)}`
+												: ''}
+										</p>
+										<p class="text-tide-200/70">Add it to your watch list to keep track.</p>
+									</div>
+								</div>
+							{/if}
+							<button
+								type="button"
+								onclick={toggleWatchlist}
+								disabled={watchlistBusy}
+								class="mt-3 inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-all disabled:opacity-60
+									{onWatchlist
+									? 'bg-ember-500/15 text-ember-300 ring-1 ring-ember-500/30 hover:bg-ember-500/20'
+									: 'bg-white/[0.06] text-neutral-200 ring-1 ring-white/10 hover:bg-white/[0.1]'}"
+							>
+								<svg
+									class="h-4 w-4"
+									fill={onWatchlist ? 'currentColor' : 'none'}
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+									stroke-width="2"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
+									/>
+								</svg>
+								{onWatchlist ? 'On your watch list' : 'Add to watch list'}
+							</button>
 						{/if}
 
 						<!-- Tagline -->
@@ -316,7 +441,7 @@
 						<!-- Meta pills row -->
 						<div class="mt-3 flex flex-wrap items-center gap-2">
 							{#if item.vote_average > 0}
-								<div class="rounded-full bg-white/[0.06] px-2.5 py-1 ring-1 ring-white/[0.06]">
+								<div class="rounded-[3px] bg-neutral-800 px-2 py-1">
 									<StarRating score={item.vote_average} size="md" />
 								</div>
 							{/if}
@@ -342,11 +467,7 @@
 						{#if genres.length > 0}
 							<div class="mt-3 flex flex-wrap gap-1.5">
 								{#each genres as genre}
-									<span
-										class="rounded-full bg-gradient-to-r from-white/[0.04] to-white/[0.02] px-2.5
-										py-0.5 text-xs text-neutral-300
-										ring-1 ring-white/[0.06]"
-									>
+									<span class="border-b border-neutral-700 pb-px text-xs text-neutral-300">
 										{genre.name}
 									</span>
 								{/each}
@@ -377,9 +498,7 @@
 		<!-- ═══════════════════════════════════════════════════════════════════ -->
 		{#if overview}
 			<div class="animate-slide-up-fade mt-6 px-4 sm:px-6" style="animation-delay: 300ms">
-				<h2 class="mb-2 text-sm font-semibold tracking-wider text-neutral-400 uppercase">
-					Overview
-				</h2>
+				<h2 class="mb-3 eyebrow text-gold-400">Overview</h2>
 				<p class="max-w-3xl text-sm leading-relaxed text-neutral-300">{overview}</p>
 			</div>
 		{/if}
@@ -389,11 +508,7 @@
 		<!-- ═══════════════════════════════════════════════════════════════════ -->
 		{#if cast.length > 0}
 			<div class="animate-slide-up-fade mt-6" style="animation-delay: 400ms">
-				<h2
-					class="mb-3 px-4 text-sm font-semibold tracking-wider text-neutral-400 uppercase sm:px-6"
-				>
-					Cast
-				</h2>
+				<h2 class="mb-3 px-4 eyebrow text-gold-400 sm:px-6">Cast</h2>
 				<CastRow {cast} />
 			</div>
 		{/if}
@@ -403,8 +518,8 @@
 		<!-- ═══════════════════════════════════════════════════════════════════ -->
 		<div class="animate-slide-up-fade mt-8 px-4 pb-8 sm:px-6" style="animation-delay: 500ms">
 			<div class="mb-4 flex items-center gap-3">
-				<h2 class="text-sm font-semibold tracking-wider text-neutral-400 uppercase">Torrents</h2>
-				<div class="h-px flex-1 bg-gradient-to-r from-white/[0.06] to-transparent"></div>
+				<h2 class="eyebrow text-gold-400">Torrents</h2>
+				<div class="h-px flex-1 bg-neutral-800"></div>
 			</div>
 
 			{#if isMovie}
@@ -413,32 +528,29 @@
 					query={movieSearchQuery}
 					category="movies"
 					imdbId={imdbId || undefined}
-					{onDownload}
+					onDownload={downloadWithMeta}
 					{downloadingIds}
 				/>
 			{:else}
 				<!-- ─── TV: Mode toggle ──────────────────────────────────────── -->
-				<div
-					class="mb-5 flex w-fit items-center gap-1 rounded-xl bg-white/[0.03]
-					p-1 ring-1 ring-white/[0.06]"
-				>
+				<div class="mb-5 flex w-fit items-center gap-5 border-b border-neutral-800">
 					<button
 						type="button"
 						onclick={() => (tvMode = 'episodes')}
-						class="rounded-lg px-4 py-1.5 text-sm font-medium transition-all duration-200
-							{tvMode === 'episodes'
-							? 'bg-white/[0.08] text-white shadow-sm ring-1 ring-white/[0.08]'
-							: 'text-neutral-500 hover:text-neutral-300'}"
+						class="-mb-px border-b-2 pb-2 text-sm font-medium transition-colors {tvMode ===
+						'episodes'
+							? 'border-gold-400 text-white'
+							: 'border-transparent text-neutral-500 hover:text-neutral-300'}"
 					>
 						Episodes
 					</button>
 					<button
 						type="button"
 						onclick={() => (tvMode = 'boxsets')}
-						class="rounded-lg px-4 py-1.5 text-sm font-medium transition-all duration-200
-							{tvMode === 'boxsets'
-							? 'bg-white/[0.08] text-white shadow-sm ring-1 ring-white/[0.08]'
-							: 'text-neutral-500 hover:text-neutral-300'}"
+						class="-mb-px border-b-2 pb-2 text-sm font-medium transition-colors {tvMode ===
+						'boxsets'
+							? 'border-gold-400 text-white'
+							: 'border-transparent text-neutral-500 hover:text-neutral-300'}"
 					>
 						Box Sets
 					</button>
@@ -453,7 +565,7 @@
 									{seriesId}
 									seriesName={title}
 									{season}
-									{onDownload}
+									onDownload={downloadWithMeta}
 									{downloadingIds}
 								/>
 							</div>
@@ -471,7 +583,7 @@
 										onclick={() => (selectedBoxsetSeason = s.season_number)}
 										class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
 											{selectedBoxsetSeason === s.season_number
-											? 'bg-violet-500/15 text-violet-400 ring-1 ring-violet-500/25'
+											? 'bg-tide-500/15 text-tide-400 ring-1 ring-tide-500/25'
 											: 'bg-white/[0.03] text-neutral-500 ring-1 ring-white/[0.06] hover:bg-white/[0.05] hover:text-neutral-300'}"
 									>
 										Season {s.season_number}
@@ -482,7 +594,7 @@
 									onclick={() => (selectedBoxsetSeason = 0)}
 									class="rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200
 										{selectedBoxsetSeason === 0
-										? 'bg-violet-500/15 text-violet-400 ring-1 ring-violet-500/25'
+										? 'bg-tide-500/15 text-tide-400 ring-1 ring-tide-500/25'
 										: 'bg-white/[0.03] text-neutral-500 ring-1 ring-white/[0.06] hover:bg-white/[0.05] hover:text-neutral-300'}"
 								>
 									Complete Series
@@ -496,7 +608,7 @@
 								query={selectedBoxsetSeason === 0 ? `${title} Complete` : boxsetSearchQuery}
 								category="tv-boxsets"
 								imdbId={imdbId || undefined}
-								{onDownload}
+								onDownload={downloadWithMeta}
 								{downloadingIds}
 							/>
 						{/key}

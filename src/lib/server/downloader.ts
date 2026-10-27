@@ -9,7 +9,10 @@
 import { downloadTorrentFile } from './tl-client.js';
 import { addTorrent, getTorrent, mapState } from './qbittorrent-client.js';
 import { copyToLibrary } from './media-library.js';
-import type { DownloadJob, MediaType } from '$lib/types.js';
+import { refreshLibrary } from './jellyfin-client.js';
+import { saveDownloadMeta } from './download-meta.js';
+import { env } from './env.js';
+import type { DownloadJob, DownloadMeta, MediaType } from '$lib/types.js';
 
 /** Active download jobs */
 const activeJobs = new Map<string, DownloadJob>();
@@ -43,13 +46,15 @@ function notifyProgress(jobId: string, job: DownloadJob): void {
  * @param filename - TorrentLeech torrent filename (needed for download URL)
  * @param title - Display title
  * @param mediaType - 'tv' or 'movie'
+ * @param meta - The TMDB title this is for (shown in the library while downloading)
  * @returns Job ID for tracking progress
  */
 export async function startDownload(
 	torrentId: number,
 	filename: string,
 	title: string,
-	mediaType: MediaType
+	mediaType: MediaType,
+	meta?: DownloadMeta
 ): Promise<string> {
 	const jobId = generateJobId();
 
@@ -58,6 +63,7 @@ export async function startDownload(
 		torrentId,
 		title,
 		mediaType,
+		meta,
 		status: 'fetching',
 		progress: 0,
 		downloadSpeed: 0,
@@ -83,6 +89,11 @@ export async function startDownload(
 			const category = mediaType === 'tv' ? 'tv' : 'movies';
 			const hash = await addTorrent(torrentBuffer, { category });
 			job.infoHash = hash;
+			if (meta) {
+				saveDownloadMeta(hash, meta).catch((err) =>
+					console.warn('[downloader] Failed to save download metadata:', err)
+				);
+			}
 
 			// Step 3: Set up progress polling
 			const pollInterval = setInterval(async () => {
@@ -115,13 +126,20 @@ export async function startDownload(
 
 						if (torrent.content_path) {
 							try {
-								// qBittorrent sees /data/torrents, tv-thing mounts the same dir at /torrents
-								const localPath = torrent.content_path.replace('/data/torrents', '/torrents');
+								// qBittorrent sees /data/torrents, tv-thing sees the same dir at TORRENT_DOWNLOAD_DIR
+								const localPath = torrent.content_path.replace(
+									'/data/torrents',
+									env.TORRENT_DOWNLOAD_DIR
+								);
 								console.log(
 									`[downloader] Translated path: ${torrent.content_path} -> ${localPath}`
 								);
 								await copyToLibrary(localPath, mediaType);
 								console.log(`[downloader] Copied to library: ${title}`);
+								// Get it into Jellyfin now rather than at the next scheduled scan
+								refreshLibrary().catch((err) =>
+									console.warn('[downloader] Jellyfin refresh failed:', err)
+								);
 							} catch (err) {
 								console.error(`[downloader] Copy to library failed:`, err);
 								// Don't fail the whole job if copy fails — torrent is still seeding

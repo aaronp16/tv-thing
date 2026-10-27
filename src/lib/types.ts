@@ -143,11 +143,37 @@ export interface TorrentInfo {
 }
 
 /** Download job for SSE progress */
+/** The TMDB title a download is for, so the library can show its poster */
+export interface DownloadMeta {
+	tmdbId: number;
+	mediaType: 'movie' | 'tv';
+	title: string;
+	posterPath: string | null;
+}
+
+/** A download in progress, as shown in the library */
+export interface ActiveDownload {
+	/** Torrent hash, or the job ID while the .torrent is still being fetched */
+	id: string;
+	/** TMDB title if known, otherwise the torrent name */
+	title: string;
+	mediaType: 'movie' | 'tv';
+	tmdbId?: number;
+	posterPath: string | null;
+	/** 0..1 */
+	progress: number;
+	status: 'fetching' | 'downloading' | 'copying' | 'error';
+	/** bytes/sec */
+	downloadSpeed: number;
+	error?: string;
+}
+
 export interface DownloadJob {
 	id: string;
 	torrentId: number;
 	title: string;
 	mediaType: MediaType;
+	meta?: DownloadMeta;
 	infoHash?: string;
 	status: 'fetching' | 'downloading' | 'copying' | 'complete' | 'error';
 	progress: number;
@@ -204,8 +230,21 @@ export function tmdbImage(path: string | null | undefined, size: string = 'w500'
 	return `${TMDB_IMAGE_BASE}/${size}${path}`;
 }
 
+/**
+ * Whether a title can be had yet. Movies count as released once they have a
+ * digital, physical or TV release anywhere — a cinema-only release has no
+ * torrents worth having.
+ */
+export interface ReleaseAvailability {
+	status: 'released' | 'cinema' | 'upcoming';
+	/** ISO date: expected digital release ('cinema') or first release ('upcoming'), if known */
+	date?: string;
+}
+
 /** TMDB multi-search result item */
 export interface TMDBSearchResult {
+	/** Added by our API, not TMDB */
+	availability?: ReleaseAvailability;
 	id: number;
 	media_type: 'movie' | 'tv' | 'person';
 	title?: string; // movies
@@ -329,6 +368,8 @@ export interface TMDBContentRating {
 
 /** Full TMDB movie detail (with appended data) */
 export interface TMDBMovieDetail {
+	/** Added by our API, not TMDB */
+	availability?: ReleaseAvailability;
 	id: number;
 	title: string;
 	original_title: string;
@@ -443,4 +484,82 @@ export interface JellyfinItem {
 	imageUrl: string;
 	/** Whether Jellyfin has a Primary image for this item */
 	hasPoster: boolean;
+}
+
+// ─── Storage map ──────────────────────────────────────────────────────────────
+
+/** A node in a storage treemap (sizes in bytes; children sum to the node size) */
+export interface StorageNode {
+	id: string;
+	name: string;
+	/** Short display name, e.g. "Cars (2006)" for a scene release name */
+	label?: string;
+	/** Extra display info, e.g. resolution */
+	detail?: string;
+	size: number;
+	kind: 'group' | 'show' | 'season' | 'movie' | 'torrent' | 'other';
+	/** Library path relative to MEDIA_DIR — set on deletable library nodes */
+	path?: string;
+	/** qBittorrent hash — set on torrent nodes */
+	hash?: string;
+	children?: StorageNode[];
+}
+
+/** TorrentLeech seeding status for one torrent, from the snatchlist */
+export interface TLSeedStatus {
+	tlId: number;
+	seedSeconds: number;
+	ratio: number;
+	/** Already on the TL hit-and-run list */
+	onHnrList: boolean;
+	/** Minimum seeding hours TL requires (alternative to a 1:1 ratio) */
+	requiredHours: number;
+	/** Can be removed without becoming a hit-and-run */
+	safe: boolean;
+}
+
+/** A library file that is a copy of a file inside a torrent */
+export interface LinkedFile {
+	/** Path relative to MEDIA_DIR */
+	path: string;
+	size: number;
+}
+
+/** A tv/movies torrent with its TL status and library links */
+export interface StorageTorrent {
+	hash: string;
+	name: string;
+	category: string;
+	size: number;
+	progress: number;
+	/** null when the torrent isn't on the TL snatchlist (or TL couldn't be reached) */
+	tl: TLSeedStatus | null;
+	/** Library copies of this torrent's files (matched by filename + exact size) */
+	libraryFiles: LinkedFile[];
+	/** Video files in the torrent */
+	videoFiles: number;
+	/** Video files that have a library copy */
+	linkedVideoFiles: number;
+}
+
+export interface StorageReport {
+	disk: { total: number; free: number; used: number };
+	library: StorageNode;
+	torrents: StorageNode;
+	torrentDetails: StorageTorrent[];
+	/** Set when the TL snatchlist couldn't be fetched */
+	tlError?: string;
+	scannedAt: number;
+}
+
+// ─── Watch list ───────────────────────────────────────────────────────────────
+
+export interface WatchlistItem {
+	tmdbId: number;
+	mediaType: 'movie' | 'tv';
+	title: string;
+	year?: string;
+	posterPath: string | null;
+	/** Unix ms */
+	addedAt: number;
 }

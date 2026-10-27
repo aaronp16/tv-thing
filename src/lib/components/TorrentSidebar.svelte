@@ -114,21 +114,21 @@
 	<!-- Header -->
 	<div class="px-4 pt-5 pb-3 sm:px-5">
 		{#if showTitle}
-			<h1 class="mb-4 text-2xl font-bold text-white">Torrents</h1>
+			<h1 class="mb-4 font-display text-3xl text-white">Torrents</h1>
 		{/if}
-		<div class="flex gap-1 rounded-lg bg-neutral-800/50 p-1">
+		<div class="flex gap-5 border-b border-neutral-800">
 			<button
 				type="button"
 				onclick={() => (activeTab = 'downloading')}
-				class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors {activeTab ===
+				class="-mb-px border-b-2 pb-2 text-sm font-medium transition-colors {activeTab ===
 				'downloading'
-					? 'bg-neutral-700 text-white'
-					: 'text-neutral-400 hover:text-neutral-200'}"
+					? 'border-gold-400 text-white'
+					: 'border-transparent text-neutral-500 hover:text-neutral-200'}"
 			>
 				Downloading
 				{#if totalDownloading > 0}
 					<span
-						class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500/20 px-1 text-[10px] font-semibold text-blue-400"
+						class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] bg-gold-500/20 px-1 font-mono text-[10px] text-gold-300"
 					>
 						{totalDownloading}
 					</span>
@@ -137,15 +137,14 @@
 			<button
 				type="button"
 				onclick={() => (activeTab = 'seeding')}
-				class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors {activeTab ===
-				'seeding'
-					? 'bg-neutral-700 text-white'
-					: 'text-neutral-400 hover:text-neutral-200'}"
+				class="-mb-px border-b-2 pb-2 text-sm font-medium transition-colors {activeTab === 'seeding'
+					? 'border-gold-400 text-white'
+					: 'border-transparent text-neutral-500 hover:text-neutral-200'}"
 			>
 				Seeding
 				{#if seeding.length > 0}
 					<span
-						class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-green-500/20 px-1 text-[10px] font-semibold text-green-400"
+						class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-[3px] bg-sage-500/20 px-1 font-mono text-[10px] text-sage-300"
 					>
 						{seeding.length}
 					</span>
@@ -198,7 +197,7 @@
 							</div>
 							<div class="h-1.5 w-full overflow-hidden rounded-full bg-neutral-700">
 								<div
-									class="h-full bg-blue-500 transition-all duration-300"
+									class="h-full bg-gold-500 transition-all duration-300"
 									style="width: {Math.round(torrent.progress * 100)}%"
 								></div>
 							</div>
@@ -240,7 +239,7 @@
 					<div class="rounded-lg bg-neutral-800/50 p-3">
 						<div class="mb-1 flex items-center justify-between gap-2">
 							<span class="truncate text-sm text-white">{torrent.name}</span>
-							<span class="flex-shrink-0 text-xs font-medium text-green-400">
+							<span class="flex-shrink-0 text-xs font-medium text-sage-400">
 								{torrent.ratio.toFixed(2)}
 							</span>
 						</div>

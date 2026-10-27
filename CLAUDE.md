@@ -1,45 +1,50 @@
-# book-thing
+# tv-thing
 
-A SvelteKit web interface for searching and downloading books from MyAnonamouse with a built-in torrent client.
+A SvelteKit web interface for searching TorrentLeech for TV shows and movies, downloading via qBittorrent, and copying completed downloads into the Jellyfin library.
 
 ## Quick Reference
 
+Development happens directly on the homelab server, so dev uses the same media and torrent data as production.
+
 ```bash
-# Development
-npm run dev           # Start dev server (http://localhost:5173)
-npm run build         # Build for production
-npm run preview       # Preview production build
-
-# Docker
-docker compose up -d  # Start with Docker
-docker compose down   # Stop
-
-# Type checking
+# Development (on the server, reads .env — see .env.example)
+npm run dev -- --host # Dev server at http://192.168.1.69:5173
 npm run check         # Run svelte-check
+
+# Deploy (no CI — prod image is built locally from this checkout)
+cd ~/homelab && docker compose up -d --build tv-thing
 ```
 
-## Project Overview
+Production is defined in `~/homelab/docker-compose.yml` (`tv-thing` service, `image: tv-thing:local`, port 13339).
 
-**book-thing** is a self-hosted web app that:
-- Searches MyAnonamouse's catalog via their JSON API
-- Downloads books via a built-in WebTorrent client (no external torrent client needed)
-- Seeds completed downloads automatically
-- Persists torrent state across restarts
-- Shows download progress, speeds, peers, and seeding status
+## Project Overview
 
 ### Tech Stack
 - **Frontend**: SvelteKit 2, Svelte 5 (runes), Tailwind CSS v4
 - **Backend**: SvelteKit server routes (Node.js adapter for Docker)
-- **Torrent Client**: WebTorrent (in-process, headless)
-- **Containerization**: Docker + docker-compose with volume mount for `/books`
+- **Torrent Client**: external qBittorrent (WebUI API)
+- **Integrations**: TorrentLeech (search/download), TMDB (metadata, trending, watch providers), Jellyfin (library status)
 
 ### Environment Variables
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MAM_ID` | (required) | MyAnonamouse session cookie (`mam_id`) |
-| `MAM_UID` | (required) | MyAnonamouse user ID |
-| `BOOKS_DIR` | `./books` (dev) / `/books` (Docker) | Download directory (volume mount) |
-| `TORRENT_PORT` | `6881` | Port for incoming torrent connections |
+| `TL_USERNAME` / `TL_PASSWORD` | (required) | TorrentLeech credentials |
+| `TL_2FA_TOKEN` | | TorrentLeech 2FA token (optional) |
+| `QB_URL` | `http://localhost:8080` | qBittorrent WebUI URL |
+| `QB_USERNAME` / `QB_PASSWORD` | `admin` / | qBittorrent WebUI credentials |
+| `QB_SAVE_PATH` | | qBittorrent save path override (optional) |
+| `MEDIA_DIR` | `/media` | Jellyfin media root (contains `tv/` and `movies/`) |
+| `TORRENT_DOWNLOAD_DIR` | `/torrents` | Where qBittorrent's `/data/torrents` is visible to this app |
+| `DATA_DIR` | `/config` | Persistent app data (`watchlist.json`) |
+| `TMDB_API_KEY` | | TMDB v3 key or v4 read token |
+| `TMDB_REGION` | `GB` | Watch provider region |
+| `JELLYFIN_URL` / `JELLYFIN_API_KEY` | | Jellyfin server and API key |
+
+### Storage page (`/storage`)
+Treemaps of the torrents folder and the library, with delete/cleanup actions (`src/lib/server/storage.ts`).
+- **Torrent ↔ library link**: `copyToLibrary()` keeps original filenames, so a library file with the same filename + exact size as a torrent file is its copy. Worked out from disk on each scan; nothing is stored.
+- **Hit-and-run status**: scraped from the TL snatchlist (`/profile/{user}/snatchlist`), matched to qBittorrent torrents by exact total size. Safe = seeded ≥ the hours on TL's H&R page (168) or ratio ≥ 1.
+- Deletes only touch paths inside `MEDIA_DIR/tv` and `MEDIA_DIR/movies`, and torrents in the `tv`/`movies` categories.
 
 ---
 

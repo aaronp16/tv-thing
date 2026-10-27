@@ -114,7 +114,7 @@
 			<div class="flex items-center gap-2">
 				{#if loading}
 					<div
-						class="h-4 w-4 animate-spin rounded-full border-2 border-blue-400/30 border-t-blue-400"
+						class="h-4 w-4 animate-spin rounded-full border-2 border-gold-400/30 border-t-gold-400"
 					></div>
 				{/if}
 				{#if hasSearched && !loading}
@@ -129,7 +129,7 @@
 				class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium
 					transition-all duration-200
 					{useImdb
-					? 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/25'
+					? 'bg-ember-500/15 text-ember-400 ring-1 ring-ember-500/25'
 					: 'bg-white/[0.04] text-neutral-500 ring-1 ring-white/[0.06] hover:bg-white/[0.06] hover:text-neutral-300'}"
 			>
 				<svg class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
@@ -151,11 +151,11 @@
 		</div>
 	{:else if error}
 		<div class="py-6 text-center">
-			<p class="text-sm text-red-400">{error}</p>
+			<p class="text-sm text-brick-400">{error}</p>
 			<button
 				type="button"
 				onclick={search}
-				class="mt-2 text-xs text-blue-400 transition-colors hover:text-blue-300"
+				class="mt-2 text-xs text-gold-400 transition-colors hover:text-gold-300"
 			>
 				Try again
 			</button>
@@ -180,7 +180,7 @@
 				<button
 					type="button"
 					onclick={toggleImdb}
-					class="mt-2 text-xs text-blue-400 transition-colors hover:text-blue-300"
+					class="mt-2 text-xs text-gold-400 transition-colors hover:text-gold-300"
 				>
 					Try searching by IMDB ID
 				</button>
@@ -225,10 +225,10 @@
 							<span class="ml-1 flex items-center gap-1 text-[11px]">
 								<span
 									class="h-1.5 w-1.5 rounded-full {result.seeders > 0
-										? 'bg-emerald-500'
-										: 'bg-red-500'}"
+										? 'bg-sage-500'
+										: 'bg-brick-500'}"
 								></span>
-								<span class={result.seeders > 0 ? 'text-emerald-400/80' : 'text-red-400/80'}
+								<span class={result.seeders > 0 ? 'text-sage-400/80' : 'text-brick-400/80'}
 									>{result.seeders}</span
 								>
 								<span class="text-neutral-600">/ {result.leechers}</span>
@@ -240,11 +240,11 @@
 					<div class="flex-shrink-0">
 						{#if isDownloading}
 							<div
-								class="h-5 w-5 animate-spin rounded-full border-2 border-blue-400/30 border-t-blue-400"
+								class="h-5 w-5 animate-spin rounded-full border-2 border-gold-400/30 border-t-gold-400"
 							></div>
 						{:else}
 							<svg
-								class="h-5 w-5 text-neutral-600 transition-colors group-hover:text-blue-400"
+								class="h-5 w-5 text-neutral-600 transition-colors group-hover:text-gold-400"
 								fill="none"
 								stroke="currentColor"
 								viewBox="0 0 24 24"

@@ -11,10 +11,10 @@
 	};
 
 	const bgColors: Record<string, string> = {
-		success: 'bg-green-600',
-		error: 'bg-red-600',
-		warning: 'bg-yellow-600',
-		info: 'bg-blue-600'
+		success: 'bg-sage-600',
+		error: 'bg-brick-600',
+		warning: 'bg-ember-600',
+		info: 'bg-gold-600'
 	};
 
 	function handleDismiss(id: string) {
@@ -23,7 +23,7 @@
 </script>
 
 <div
-	class="pointer-events-none fixed bottom-20 left-4 right-4 z-50 flex flex-col gap-2 md:bottom-4 md:left-auto md:right-4"
+	class="pointer-events-none fixed right-4 bottom-20 left-4 z-50 flex flex-col gap-2 md:right-4 md:bottom-4 md:left-auto"
 >
 	{#each $toasts as toast (toast.id)}
 		<div

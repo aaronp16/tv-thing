@@ -227,3 +227,16 @@ export async function proxyPosterImage(jellyfinId: string): Promise<Response> {
 		return new Response(null, { status: 502 });
 	}
 }
+
+/** Ask Jellyfin to rescan all libraries (e.g. after files were deleted) */
+export async function refreshLibrary(): Promise<void> {
+	if (!isJellyfinConfigured()) return;
+
+	const url = new URL(`${env.JELLYFIN_URL.replace(/\/$/, '')}/Library/Refresh`);
+	url.searchParams.set('api_key', env.JELLYFIN_API_KEY);
+
+	const res = await fetch(url.toString(), { method: 'POST' });
+	if (!res.ok) {
+		throw new Error(`Jellyfin library refresh failed: ${res.status}`);
+	}
+}

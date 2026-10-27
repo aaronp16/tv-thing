@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getDiscover, type DiscoverOptions } from '$lib/server/tmdb-client';
+import { withAvailability, getDiscover, type DiscoverOptions } from '$lib/server/tmdb-client';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const mediaType = (url.searchParams.get('type') || 'movie') as 'movie' | 'tv';
@@ -14,7 +14,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	try {
 		const data = await getDiscover({ mediaType, sortBy, genre, year, yearMode, month, page });
-		return json(data);
+		return json({ ...data, results: await withAvailability(data.results) });
 	} catch (err) {
 		console.error('[api/tmdb/discover] Error:', err);
 		return json(

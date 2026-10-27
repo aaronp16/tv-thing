@@ -9,6 +9,7 @@
 	import DownloadedCheck from '$lib/components/ui/DownloadedCheck.svelte';
 	import WatchProviderBadges from '$lib/components/discover/WatchProviderBadges.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
+	import AvailabilityBadge from '$lib/components/ui/AvailabilityBadge.svelte';
 	import {
 		tmdbDisplayTitle,
 		tmdbYear,
@@ -66,7 +67,7 @@
 		</div>
 	{:else}
 		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-			{#each results as item, i (item.id)}
+			{#each results as item, i (`${item.media_type}:${item.id}`)}
 				{@const title = tmdbDisplayTitle(item)}
 				{@const year = tmdbYear(item)}
 				{@const isDownloaded = downloadedIds.has(item.id)}
@@ -75,14 +76,11 @@
 					type="button"
 					onclick={() => onSelect(item)}
 					class="group animate-float-up rounded-xl text-left focus:outline-none
-						focus-visible:ring-2 focus-visible:ring-blue-500/50"
+						focus-visible:ring-2 focus-visible:ring-gold-500/50"
 					style="animation-delay: {i * 50}ms"
 				>
 					<!-- Poster -->
-					<div
-						class="card-hover relative overflow-hidden rounded-xl
-						ring-1 ring-white/[0.06]"
-					>
+					<div class="card-hover relative overflow-hidden rounded-md bg-neutral-850">
 						<PosterImage path={item.poster_path} alt={title} size="w342" class="w-full" />
 
 						<!-- Hover overlay -->
@@ -99,11 +97,12 @@
 							</div>
 						</div>
 
-						<!-- Type badge -->
-						<div class="absolute top-2 left-2">
+						<!-- Type + availability badges -->
+						<div class="absolute top-2 left-2 flex flex-col items-start gap-1">
 							<Badge variant={item.media_type === 'movie' ? 'primary' : 'accent'} size="xs">
 								{item.media_type === 'movie' ? 'Movie' : 'TV'}
 							</Badge>
+							<AvailabilityBadge availability={item.availability} />
 						</div>
 
 						<!-- Downloaded indicator -->
@@ -116,8 +115,7 @@
 						<!-- Rating pill (bottom-right of poster) -->
 						{#if item.vote_average > 0}
 							<div
-								class="absolute right-2 bottom-2 rounded-full bg-black/60
-								px-1.5 py-0.5 ring-1 ring-white/10 backdrop-blur-sm"
+								class="absolute right-2 bottom-2 rounded-[3px] bg-neutral-950/75 px-1.5 py-1 backdrop-blur-sm"
 							>
 								<StarRating score={item.vote_average} size="sm" />
 							</div>
@@ -127,14 +125,13 @@
 					<!-- Text below poster -->
 					<div class="mt-2 px-0.5">
 						<h3
-							class="truncate text-sm font-medium text-neutral-200
-							transition-colors group-hover:text-white"
+							class="truncate font-display text-[17px] text-neutral-100 transition-colors group-hover:text-gold-200"
 						>
 							{title}
 						</h3>
 						<div class="mt-0.5 flex items-center gap-2">
 							{#if year}
-								<span class="text-xs text-neutral-500">{year}</span>
+								<span class="font-mono text-[11px] text-neutral-500">{year}</span>
 							{/if}
 							{#if watchProviders[item.id]}
 								<WatchProviderBadges providers={watchProviders[item.id]} compact class="ml-auto" />

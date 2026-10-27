@@ -7,10 +7,10 @@
 	import DiscoverSearchResults from '$lib/components/discover/DiscoverSearchResults.svelte';
 	import TrendingSection from '$lib/components/discover/TrendingSection.svelte';
 	import MediaDetailPage from '$lib/components/discover/MediaDetailPage.svelte';
-	import { tmdbDisplayTitle, tmdbYear, type TMDBSearchResult, type SearchResult } from '$lib/types';
+	import { tmdbDisplayTitle, tmdbYear, type TMDBSearchResult, type SearchResult, type DownloadMeta } from '$lib/types';
 
 	interface Props {
-		onDownload: (result: SearchResult) => void;
+		onDownload: (result: SearchResult, meta?: DownloadMeta) => void;
 		downloadingIds: Set<number>;
 		pendingOpen?: { tmdbId: number; mediaType: 'movie' | 'tv' } | null;
 		onPendingOpenConsumed?: () => void;
@@ -176,10 +176,7 @@
 		<button
 			type="button"
 			onclick={goBack}
-			class="absolute top-4 left-4 z-30 inline-flex items-center gap-2 rounded-full
-				bg-black/60 px-3 py-1.5 text-sm text-neutral-300
-				ring-1 ring-white/10 backdrop-blur-md transition-all
-				duration-200 hover:bg-black/75 hover:text-white hover:ring-white/20"
+			class="absolute top-6 left-7 z-30 inline-flex items-center gap-1.5 rounded-md bg-neutral-950/70 py-1.5 pr-3 pl-2 font-mono text-[11px] tracking-wider text-neutral-200 uppercase backdrop-blur-md transition-colors hover:bg-neutral-950/90 hover:text-white sm:left-9"
 		>
 			<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -238,7 +235,7 @@
 						oninput={handleSearchInput}
 						onkeydown={handleSearchKeydown}
 						placeholder="Search movies & TV shows..."
-						class="w-full rounded-full border-0 bg-neutral-800 py-3 pl-12 text-white placeholder-neutral-500 ring-1 ring-neutral-700 transition-all focus:bg-neutral-750 focus:ring-2 focus:ring-blue-500 focus:outline-none {searchQuery
+						class="w-full rounded-lg border-0 bg-neutral-850 py-3 pl-12 text-white placeholder-neutral-500 ring-1 ring-neutral-800 transition-all focus:bg-neutral-800 focus:ring-1 focus:ring-gold-400/70 focus:outline-none {searchQuery
 							? 'pr-10'
 							: 'pr-4'}"
 					/>
